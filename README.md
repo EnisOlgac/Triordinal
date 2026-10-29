@@ -215,6 +215,10 @@ If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite
 
 To cite the software itself, use its Zenodo archive: E. Olgac, *Triordinal—Topology and Structure of Directed Trees and Graphs: An Incremental Encoding*, Zenodo, 2026. doi: [10.5281/zenodo.23760809](https://doi.org/10.5281/zenodo.23760809). Versions up to 1.8.0, as DTree: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.8.0, Zenodo, 2026. doi: [10.5281/zenodo.23685810](https://doi.org/10.5281/zenodo.23685810) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
+## Acknowledgements
+
+Thanks to Onur Safi for a careful review of DTree 1.8.0, which led to the fixes in Triordinal 2.0.0 and to the work planned for 2.1.0, and to Sinan Emiroğlu for his feedback, in particular on the package name clash and on stating the contribution of DTree more concisely.
+
 ## License
 
 DList and DTree are released under the MIT License. See [`LICENSE.md`](LICENSE.md) for details.
