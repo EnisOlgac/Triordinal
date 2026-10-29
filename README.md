@@ -3,6 +3,7 @@
 [![build](https://github.com/EnisOlgac/Triordinal/actions/workflows/build.yml/badge.svg)](https://github.com/EnisOlgac/Triordinal/actions/workflows/build.yml)
 [![PyPI](https://img.shields.io/pypi/v/triordinal-dtree.svg)](https://pypi.org/project/triordinal-dtree/)
 [![NuGet](https://img.shields.io/nuget/v/Triordinal.DTree.svg)](https://www.nuget.org/packages/Triordinal.DTree)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23760809.svg)](https://doi.org/10.5281/zenodo.23760809)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7560--6107-a6ce39.svg)](https://orcid.org/0009-0009-7560-6107)
 
@@ -212,7 +213,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive. Until Triordinal has its own record, cite DTree: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.8.0, Zenodo, 2026. doi: [10.5281/zenodo.23685810](https://doi.org/10.5281/zenodo.23685810) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *Triordinal—Topology and Structure of Directed Trees and Graphs: An Incremental Encoding*, Zenodo, 2026. doi: [10.5281/zenodo.23760809](https://doi.org/10.5281/zenodo.23760809). Versions up to 1.8.0, as DTree: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.8.0, Zenodo, 2026. doi: [10.5281/zenodo.23685810](https://doi.org/10.5281/zenodo.23685810) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 

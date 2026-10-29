@@ -10,6 +10,7 @@ authors:
 repository-code: "https://github.com/EnisOlgac/Triordinal"
 license: MIT
 version: "2.0.0"
+doi: "10.5281/zenodo.23760809"
 date-released: "2026-10-29"
 keywords:
   - directed tree

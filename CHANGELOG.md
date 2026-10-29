@@ -2,6 +2,8 @@
 
 ## 2.0.0
 
+Archived on Zenodo: doi:10.5281/zenodo.23760809.
+
 **Triordinal continues DTree.** The code of DTree 1.8.0 moves to this repository, split into packages so that DGraph can join later without depending on DTree:
 
 | Package | Python | NuGet | Depends on |
