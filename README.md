@@ -19,6 +19,13 @@ DTree and DGraph do not depend on each other; both build on DList only.
 
 `DTree` encodes the topology of a single-rooted directed tree explicitly by two linear projections, `Q1` and `Q2`. Reachability between any two nodes, as well as and/or queries over sets of nodes, is answered by comparing positions, without traversing the tree, and the encoding is updated incrementally as the tree changes.
 
+## What Is New, in Short
+
+- **Known:** whether *u* is an ancestor of *v* can be decided from pre- and post-order positions (Dietz, 1982), and such positions can be kept up to date under insertions (Dietz & Sleator, 1987; Bender et al., 2002). These methods project the tree onto **one list**, an Euler tour or the numbering of one traversal, from which both positions are read.
+- **DTree** keeps **two independent lists**, `Q1` and `Q2`, each a projection of the tree in its own right and each updated at insertion points known in advance (a new child goes last among its siblings in `Q1`, first in `Q2`). Every node is a point in the plane `Q1` × `Q2`, and *u* reaches *v* exactly when *v* lies below and to the right of *u*. In other words, `Q1` and `Q2` are the left-first and the right-first depth-first traversals of the tree, together topology-preserving, and DTree keeps them up to date without ever running a traversal.
+- **And/or queries are intrinsic.** A set of nodes is itself represented as a point of that plane, a *constructed node* (`VMin`, `VMax`, `UMin`, `UMax`): "does *u* reach all of S?" is one comparison, "does *u* reach some of S?" a binary search, and both stay valid as the tree changes. With a single list such questions can be worked out case by case, but they are not part of the representation.
+- **Why independent projections matter:** in a tree, `Q2` could still be derived from `Q1` and the parent links; in a directed graph it cannot. Reachability in a graph needs two or three independent orders (its order dimension), and any further analysis has to work with them. DTree is the tree case of this; DGraph, planned here, maintains such orders for directed graphs incrementally, including graphs with cycles: a cycle is closed through a proxy of its head vertex, so the orders stay acyclic without collapsing strongly connected components into single vertices. For general directed graphs, no traversal produces such orders; DGraph has to construct them.
+
 The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The C# implementation and a WPF viewer are in [`csharp/`](csharp/).
 
 ## Projection Model
@@ -36,7 +43,7 @@ Inserting the edge (*u*, *v*) places *v* immediately after *u* in `Q2`, and at t
 
 `Q1` is the pre-order of a left-to-right depth-first traversal; `Q2` is the reversed post-order of the same traversal (equivalently, the pre-order with siblings right to left). That ancestry in a tree can be decided by comparing pre- and post-order positions is classical (Dietz, 1982). Maintaining positions in a list under insertions is the order-maintenance problem (Dietz & Sleator, 1987; Bender, Cole, Demaine, Farach-Colton & Zito, 2002); the Python implementation uses rational positions instead (see below) and borrows the density rule of Bender et al. for its rare renumbering.
 
-What `DTree` contributes (see the [paper](#paper)) is maintaining both orderings incrementally with a priori known insertion points: a new child is always the last child of its parent in `Q1` (placed before the parent's delimiter) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed.
+The insertion points of a new node are known in advance (see the [paper](#paper)): it becomes the last child of its parent in `Q1` (placed before the parent's delimiter) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed. A summary of what is new compared to this prior art is at the top of this page.
 
 - P. F. Dietz. Maintaining order in a linked list. *STOC 1982*, 122–127.
 - P. F. Dietz, D. D. Sleator. Two algorithms for maintaining order in a list. *STOC 1987*, 365–372.
