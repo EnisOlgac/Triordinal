@@ -102,9 +102,40 @@ def labels_strictly_increase(q):
     return True
 
 
+def cells(q):
+    """All cells between the markers, closing cells included."""
+    c = q.first.next
+    while c is not q.last:
+        yield c
+        c = c.next
+
+
+def raw_cells(q):
+    """The whole list: node names, and ")x" for the closing cell of node x."""
+    return [c.name if c.name is not None else ")" + c.node.name for c in cells(q)]
+
+
+def ref_euler(children, root, reverse=False):
+    """Pre-order with a closing cell after the subtree of every node that has children."""
+    out, stack = [], [(root, False)]
+    while stack:
+        n, done = stack.pop()
+        if done:
+            out.append(")" + n)
+            continue
+        out.append(n)
+        kids = children.get(n, [])
+        if kids:
+            stack.append((n, True))
+            stack.extend((k, False) for k in (kids if reverse else reversed(kids)))
+    return out
+
+
 def check(tc, t, ref):
     tc.assertTrue(labels_strictly_increase(t._q1))
     tc.assertTrue(labels_strictly_increase(t._q2))
+    tc.assertEqual(raw_cells(t._q1), ref_euler(ref.children, ref.root))
+    tc.assertEqual(raw_cells(t._q2), ref_euler(ref.children, ref.root, reverse=True))
     nodes = ref.nodes()
     tc.assertEqual(t.size, len(nodes))
     tc.assertEqual(t.root, ref.root)
@@ -458,7 +489,7 @@ class TestNodeHandles(unittest.TestCase):
 
 
 class TestSubtreeEnd(unittest.TestCase):
-    """The end of a subtree in Q1 (walk with a budget, validated hint, path compression)."""
+    """The end of a subtree in Q1, marked by the closing cell of its root."""
 
     @staticmethod
     def _ref_last(t, v):
@@ -489,17 +520,6 @@ class TestSubtreeEnd(unittest.TestCase):
 
     def test_inserts_mixed_with_deletes_and_moves(self):
         self._mixed()
-
-    def test_hint_path_always(self):
-        # budget 0: every lookup of a subtree's end goes through the validated hint
-        import triordinal.dtree.core as mod
-        saved = mod._BUDGET
-        mod._BUDGET = 0
-        try:
-            self._mixed()
-            self.test_top_down_comb()
-        finally:
-            mod._BUDGET = saved
 
     def _mixed(self):
         for seed in range(25):
@@ -620,49 +640,43 @@ class TestSiblingInsert(unittest.TestCase):
 
     def test_random_mix(self):
         # all three kinds of insertion, mixed with deletes and moves, against the reference
-        import triordinal.dtree.core as impl
-        for budget in (impl._BUDGET, 0):
-            saved, impl._BUDGET = impl._BUDGET, budget
-            try:
-                for seed in range(12):
-                    t, ref, rnd = random_tree(20, seed)
-                    k = 0
-                    for _ in range(100):
-                        nodes = ref.nodes()
-                        inner = [n for n in nodes if n != ref.root]
-                        r = rnd.random()
-                        name = f"x{k}"
-                        if r < 0.25:
-                            p = rnd.choice(nodes)
-                            t.insert(p, name)
-                            ref.insert(p, name)
-                            k += 1
-                        elif r < 0.5 and inner:
-                            s = rnd.choice(inner)
-                            t.insert_after(s, name)
-                            ref.insert_after(s, name)
-                            k += 1
-                        elif r < 0.75 and inner:
-                            s = rnd.choice(inner)
-                            t.insert_before(s, name)
-                            ref.insert_before(s, name)
-                            k += 1
-                        elif r < 0.85 and len(inner) > 10:
-                            v = rnd.choice(inner)
-                            t.delete(v)
-                            ref.delete(v)
-                        elif len(inner) > 10:
-                            u = rnd.choice(inner)
-                            banned = set(t.subtree(u))
-                            p = rnd.choice([n for n in nodes if n not in banned])
-                            t.cut_n_paste(u, p)
-                            ref.move(u, p)
-                        check(self, t, ref)
-                        for v in rnd.sample(ref.nodes(), 3):
-                            sub_v = [w for w in ref.nodes() if w == v or v == ref.root or v in ref_ancestors(ref.parent, w)]
-                            self.assertEqual(t.subtree_last(v), [w for w in t.q1 if w in sub_v][-1])
-            finally:
-                impl._BUDGET = saved
+        for seed in range(12):
+            t, ref, rnd = random_tree(20, seed)
+            k = 0
+            for _ in range(100):
+                nodes = ref.nodes()
+                inner = [n for n in nodes if n != ref.root]
+                r = rnd.random()
+                name = f"x{k}"
+                if r < 0.25:
+                    p = rnd.choice(nodes)
+                    t.insert(p, name)
+                    ref.insert(p, name)
+                    k += 1
+                elif r < 0.5 and inner:
+                    s = rnd.choice(inner)
+                    t.insert_after(s, name)
+                    ref.insert_after(s, name)
+                    k += 1
+                elif r < 0.75 and inner:
+                    s = rnd.choice(inner)
+                    t.insert_before(s, name)
+                    ref.insert_before(s, name)
+                    k += 1
+                elif r < 0.85 and len(inner) > 10:
+                    v = rnd.choice(inner)
+                    t.delete(v)
+                    ref.delete(v)
+                elif len(inner) > 10:
+                    u = rnd.choice(inner)
+                    banned = set(t.subtree(u))
+                    p = rnd.choice([n for n in nodes if n not in banned])
+                    t.cut_n_paste(u, p)
+                    ref.move(u, p)
+                check(self, t, ref)
+                for v in rnd.sample(ref.nodes(), 3):
+                    sub_v = [w for w in ref.nodes() if w == v or v == ref.root or v in ref_ancestors(ref.parent, w)]
+                    self.assertEqual(t.subtree_last(v), [w for w in t.q1 if w in sub_v][-1])
 
     def test_same_gap_many_times(self):
         # repeated insertion into the same gap from both sides: positions stay strictly increasing
@@ -710,8 +724,10 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertEqual(t.depth("v5000"), 5000)
         self.assertTrue(t.can_reach("v0", "v5000"))
         self.assertFalse(t.can_reach("v5000", "v0"))
-        # growing a chain only appends at the list ends: no renumbering at all
-        self.assertEqual((t.Q1.renumber_count, t.Q2.renumber_count), (0, 0))
+        # a chain nests every new node into the gap of its parent: renumbering keeps the
+        # positions strictly increasing and the denominators bounded
+        self.assertTrue(labels_strictly_increase(t._q1) and labels_strictly_increase(t._q2))
+        self.assertTrue(all(c.den.bit_length() <= 64 for q in (t._q1, t._q2) for c in cells(q)))
 
     def test_wide_node(self):
         t = DTree()
@@ -755,7 +771,7 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertTrue(labels_strictly_increase(t._q1))
         self.assertTrue(labels_strictly_increase(t._q2))
         for q in (t._q1, t._q2):
-            self.assertTrue(all(c.den.bit_length() <= 64 for c in q._cells.values() if c.den))
+            self.assertTrue(all(c.den.bit_length() <= 64 for c in cells(q)))
 
     def test_random_list_operations(self):
         from triordinal.dtree import DList
@@ -795,6 +811,279 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertTrue(labels_strictly_increase(t._q2))
         self.assertTrue(t.can_reach("a", "y2999"))
         self.assertFalse(t.can_reach("x0", "y0"))
+
+
+def snapshot(t):
+    """Everything an operation could change: both lists cell by cell, positions, parents, names."""
+    pos = [[(c.name, c.num, c.den) for c in cells(q)] for q in (t._q1, t._q2)]
+    return (raw_cells(t._q1), raw_cells(t._q2), pos, t._parent, sorted(t._nodes), t.root,
+            {n.name: [k.name for k in (n.kids or ())] for n in t._nodes.values()})
+
+
+class TestReviewPatterns(unittest.TestCase):
+    """The complexity patterns of Onur Safi's review of DTree 1.8.0, checked for correctness;
+    their cost is measured by the benchmarks (python -m triordinal.dtree.bench --review)."""
+
+    def test_extend_bottom_then_child_near_top(self):
+        # a deep branch is extended at the bottom, then a child is added near its top
+        t, ref = DTree(), Reference()
+        d = 1500
+        t.insert("r", "c0")
+        ref.insert("r", "c0")
+        for i in range(1, d):
+            t.insert(f"c{i - 1}", f"c{i}")
+            ref.insert(f"c{i - 1}", f"c{i}")
+        bottom = f"c{d - 1}"
+        for r in range(300):
+            t.insert(bottom, f"b{r}")
+            ref.insert(bottom, f"b{r}")
+            bottom = f"b{r}"
+            t.insert(f"c{r}", f"y{r}")
+            ref.insert(f"c{r}", f"y{r}")
+        check(self, t, ref)
+        self.assertEqual(t.subtree_last("c0"), "y0")
+        self.assertEqual(t.subtree_last("c1"), "y1")
+
+    def test_insert_before_first_child_deep(self):
+        t, ref = DTree(), Reference()
+        d = 1500
+        t.insert("r", "c0")
+        ref.insert("r", "c0")
+        for i in range(1, d):
+            t.insert(f"c{i - 1}", f"c{i}")
+            ref.insert(f"c{i - 1}", f"c{i}")
+        for i in range(0, d, 7):
+            t.insert_before(f"c{i}", f"w{i}")      # c{i} is the first child of its parent
+            ref.insert_before(f"c{i}", f"w{i}")
+        check(self, t, ref)
+
+    def test_delete_subtree_and_move_deep(self):
+        t, ref = DTree(), Reference()
+        d = 1500
+        t.insert("r", "c0")
+        ref.insert("r", "c0")
+        for i in range(1, d):
+            t.insert(f"c{i - 1}", f"c{i}")
+            ref.insert(f"c{i - 1}", f"c{i}")
+        t.insert("r", "s")
+        ref.insert("r", "s")
+        for i in range(d - 10, 10, -97):
+            t.cut_n_paste(f"c{i}", "s")
+            ref.move(f"c{i}", "s")
+            check(self, t, ref)
+        self.assertEqual(t.delete_subtree("c5"), ref_preorder(ref.children, "c5"))
+        ref.delete_subtree("c5")
+        check(self, t, ref)
+
+    def test_many_siblings(self):
+        t, ref = DTree(), Reference()
+        t.insert("r", "p")
+        ref.insert("r", "p")
+        for i in range(300):
+            t.insert("p", f"k{i}")
+            ref.insert("p", f"k{i}")
+        for i in range(0, 300, 3):
+            t.insert_after(f"k{i}", f"a{i}")
+            ref.insert_after(f"k{i}", f"a{i}")
+            t.insert_before(f"k{i}", f"b{i}")
+            ref.insert_before(f"k{i}", f"b{i}")
+        for i in range(299, -1, -2):
+            t.delete(f"k{i}")
+            ref.delete(f"k{i}")
+        check(self, t, ref)
+
+    def test_closing_cells_come_and_go(self):
+        t = DTree()
+        t.insert("A", "B")
+        self.assertEqual(raw_cells(t._q1), ["A", "B", ")A"])
+        t.insert("B", "C")
+        self.assertEqual(raw_cells(t._q1), ["A", "B", "C", ")B", ")A"])
+        self.assertEqual(raw_cells(t._q2), ["A", "B", "C", ")B", ")A"])
+        t.delete("C")                                    # B has no children left
+        self.assertEqual(raw_cells(t._q1), ["A", "B", ")A"])
+        t.delete_subtree("B")
+        self.assertEqual(raw_cells(t._q1), ["A"])
+        self.assertEqual(raw_cells(t._q2), ["A"])
+        t.insert("A", "B")
+        t.insert("A", "C")
+        t.cut_n_paste("C", "B")
+        self.assertEqual(raw_cells(t._q1), ["A", "B", "C", ")B", ")A"])
+
+
+class TestNoPartialState(unittest.TestCase):
+    """An operation that raises leaves the tree exactly as it was."""
+
+    def test_first_insert(self):
+        for args, exc in ((("A", "A"), ValueError), (("A", None), TypeError), (("A", ""), ValueError),
+                          (("", "B"), ValueError), ((None, "B"), TypeError), (("A", SINK), ValueError),
+                          ((SOURCE, "B"), ValueError)):
+            t = DTree()
+            with self.assertRaises(exc, msg=args):
+                t.insert(*args)
+            self.assertEqual((t.size, t.root, t.q1, t.q2, len(t.Q1)), (0, None, [], [], 0), args)
+            self.assertEqual(raw_cells(t._q1), [])
+            t.insert("A", "B")                         # the tree is still usable
+            self.assertEqual(t.q1, ["A", "B"])
+
+    def test_failing_operations(self):
+        t, ref, rnd = random_tree(30, 4)
+        t.insert_after("n1", "s1")
+        other = DTree("other").insert("X", "Y")
+        gone = t.insert("n3", "gone")
+        t.delete(gone)
+        failing = [
+            (lambda: t.insert("nobody", "z"), KeyError),
+            (lambda: t.insert("n2", "n5"), ValueError),
+            (lambda: t.insert("n2", None), TypeError),
+            (lambda: t.insert("n2", ""), ValueError),
+            (lambda: t.insert(gone, "z"), KeyError),
+            (lambda: t.insert(other, "z"), KeyError),
+            (lambda: t.insert_after("n0", "z"), ValueError),
+            (lambda: t.insert_before("n0", "z"), ValueError),
+            (lambda: t.insert_after("n1", "n2"), ValueError),
+            (lambda: t.insert_before("nobody", "z"), KeyError),
+            (lambda: t.delete("n0"), ValueError),
+            (lambda: t.delete("nobody"), KeyError),
+            (lambda: t.delete(gone), KeyError),
+            (lambda: t.delete_subtree("n0"), ValueError),
+            (lambda: t.cut_n_paste("n0", "n1"), ValueError),
+            (lambda: t.cut_n_paste("n1", "n1"), ValueError),
+            (lambda: t.cut_n_paste("n0", "nobody"), KeyError),
+            (lambda: t.add_line("no operator here"), ValueError),
+        ]
+        sub = t.subtree("n1")
+        if len(sub) > 1:
+            failing.append((lambda: t.cut_n_paste("n1", sub[-1]), ValueError))
+        for op, exc in failing:
+            before = snapshot(t)
+            with self.assertRaises(exc):
+                op()
+            self.assertEqual(snapshot(t), before)
+
+    def test_from_file_rejects_lines_without_operator(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".csx", delete=False, encoding="utf-8") as fh:
+            fh.write("A: B\njust text\nB: C\n")
+        try:
+            with self.assertRaises(ValueError):
+                DTree.from_file(fh.name)
+        finally:
+            os.remove(fh.name)
+
+
+class TestReadOnlyProjections(unittest.TestCase):
+    def test_no_way_to_change_the_tree(self):
+        t = DTree()
+        t.insert("A", "B")
+        t.insert("B", "C")
+        t.insert("A", "D")
+        for q in (t.Q1, t.Q2):
+            for name in ("insert_after", "insert_before", "remove", "cut_block", "paste_block_after"):
+                self.assertFalse(hasattr(q, name), name)
+        with self.assertRaises(AttributeError):
+            t.Q1.list = None                          # no attributes can be added either
+
+    def test_list_level_reads(self):
+        t = DTree()
+        t.insert("A", "B")
+        t.insert("B", "C")
+        t.insert("A", "D")
+        q1, q2 = t.Q1, t.Q2
+        self.assertEqual((list(q1), q1.to_list(True), len(q1)), (["A", "B", "C", "D"], [SOURCE, "A", "B", "C", "D", SINK], 4))
+        self.assertEqual(list(q2), ["A", "D", "B", "C"])
+        self.assertEqual((q1.next("C"), q1.prev("D"), q1.next("D"), q1.prev("A")), ("D", "C", SINK, SOURCE))
+        self.assertTrue(q1.is_left_of("C", "D") and q1.precedes("A", "C") and q1.is_right_of("D", "C"))
+        self.assertTrue(q1.is_self_or_left_of("B", "B") and q1.is_self_or_right_of("B", "B"))
+        self.assertTrue("C" in q1 and "Z" not in q1 and q1.is_allocated("C") and q1.is_not_allocated("Z"))
+        self.assertLess(q1.index("C"), q1.index("D"))
+        self.assertIsNone(q1.index("Z"))
+        self.assertEqual((q1.source, q1.sink, q1.name), (SOURCE, SINK, "P1.Q1"))
+        self.assertTrue(q1.is_same_as(t.Q1) and not q1.is_same_as(q2))
+        self.assertEqual(repr(q1), "P1.Q1: [A, B, C, D]")
+        self.assertIs(t.Q1, q1)                       # one live view per list
+        t.insert("C", "E")
+        self.assertEqual(list(q1), ["A", "B", "C", "E", "D"])
+
+
+class TestStrict(unittest.TestCase):
+    def build(self, strict):
+        t = DTree(strict=strict)
+        t.insert("A", "B")
+        t.insert("B", "C")
+        gone = t.insert("A", "X")
+        t.delete(gone)
+        return t, gone
+
+    def test_lenient_default(self):
+        t, gone = self.build(False)
+        self.assertFalse(t.strict)
+        self.assertFalse(t.can_reach("A", "Bx") or t.can_reach("Bx", "A") or t.can_reach(gone, "A"))
+        self.assertTrue(t.can_not_reach("A", "Bx"))
+        self.assertFalse(t.is_root("nobody") or t.is_root(None))
+        self.assertFalse(t.vmin(["C"]).reaches_all("nobody"))
+        self.assertIsNone(t.umin(["B"]).covering("nobody"))
+
+    def test_strict_raises(self):
+        t, gone = self.build(True)
+        self.assertTrue(t.strict)
+        self.assertTrue(t.can_reach("A", "C") and not t.can_reach("C", "A"))
+        calls = [lambda: t.can_reach("A", "Bx"), lambda: t.can_reach("Bx", "A"),
+                 lambda: t.can_reach(gone, "A"), lambda: t.can_reach("A", gone),
+                 lambda: t.can_not_reach("A", "Bx"), lambda: t.is_ancestor("A", "Bx"),
+                 lambda: t.is_descendant("Bx", "A"), lambda: t.is_root("nobody"), lambda: t.is_root(None)]
+        S = ["C"]
+        for s in (t.vmin(S), t.vmax(S), t.umin(S), t.umax(S)):
+            for name in ("reaches_all", "may_reach_some", "reaches_some", "reached_by_all",
+                         "may_be_reached_by_some", "reached_by_some", "covering"):
+                if hasattr(s, name):
+                    calls.append(lambda f=getattr(s, name): f("nobody"))
+        for call in calls:
+            with self.assertRaises(KeyError):
+                call()
+        # membership tests never raise
+        self.assertFalse(t.contains("nobody") or "nobody" in t or t.same_subtree("A", "nobody"))
+        self.assertFalse("nobody" in t.umin(S))
+        t.umin(S).discard("nobody")
+
+    def test_from_file_strict(self):
+        t = DTree.from_file(os.path.join(EXAMPLES, "siblings.csx"), strict=True)
+        with self.assertRaises(KeyError):
+            t.can_reach("01", "nobody")
+
+
+class TestMembersAreNodes(unittest.TestCase):
+    def test_reused_name_is_not_a_member(self):
+        # a member that was deleted stays out, even when a new node gets its name
+        t = DTree()
+        t.insert("r", "X")
+        t.insert("r", "Y")
+        S = dict(vmin=t.vmin(["X"]), vmax=t.vmax(["X"]), umin=t.umin(["X"]), umax=t.umax(["X"]))
+        t.delete("X")
+        t.insert("Y", "X")                     # new and unrelated
+        for s in S.values():
+            self.assertEqual(s.members, [])
+            self.assertNotIn("X", s)
+        self.assertFalse(S["vmax"].reaches_some("r"))
+        self.assertFalse(S["umin"].reached_by_some("X"))
+        self.assertTrue(S["vmin"].reaches_all("r"))   # empty set
+
+    def test_handles_and_names_are_one_member(self):
+        t = DTree()
+        b = t.insert("A", "B")
+        u = t.umin(["B"]).add(b)
+        self.assertEqual(len(u), 1)
+        self.assertIn(b, u)
+        u.discard("B")
+        self.assertEqual(u.members, [])
+
+
+class TestIsRoot(unittest.TestCase):
+    def test_empty_tree(self):
+        t = DTree()
+        self.assertFalse(t.is_root(None) or t.is_root("A"))
+        t.insert("A", "B")
+        self.assertTrue(t.is_root("A") and t.is_root(t.get_node("A")))
+        self.assertFalse(t.is_root("B") or t.is_root(None))
 
 
 if __name__ == "__main__":

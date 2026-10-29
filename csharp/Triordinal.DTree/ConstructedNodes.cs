@@ -13,8 +13,9 @@ namespace DirectedTrees {
     /// member holding the minimal (or maximal) index there; the two may be different nodes, so the
     /// constructed node usually corresponds to no real node. Insertions and renumbering keep the
     /// order of existing nodes, so it stays valid while the tree grows. After a deletion or a
-    /// CutNPaste it is recomputed from the remaining members on its next use. Members are added
-    /// with Add and removed with Discard.
+    /// CutNPaste it is recomputed from the remaining members on its next use; a member that was
+    /// deleted is dropped, even if a new node with the same name is inserted later. Members are
+    /// added with Add and removed with Discard.
     /// </remarks>
     public abstract class ConstructedNode {
         private protected readonly DTree Tree;
@@ -59,7 +60,7 @@ namespace DirectedTrees {
         /// nodes are recomputed in O(k). Typical use: expanding a node in a tree view.
         /// </summary>
         public ConstructedNode Discard(string node) =>
-            Tree.TryGetNode(node, out var n) ? Discard(n) : this;
+            node != null && Tree.TryGetNode(node, out var n) ? Discard(n) : this;
 
         public ConstructedNode Discard(DNode node) {
             Check();
@@ -82,7 +83,7 @@ namespace DirectedTrees {
         }
 
         /// <summary>True if the node is a member of the set.</summary>
-        public bool Contains(string node) => Tree.TryGetNode(node, out var n) && Contains(n);
+        public bool Contains(string node) => node != null && Tree.TryGetNode(node, out var n) && Contains(n);
 
         public bool Contains(DNode node) { Check(); return _seen.Contains(node); }
 
@@ -143,11 +144,11 @@ namespace DirectedTrees {
         public VMin(DTree tree) : base(tree, true) { }
 
         /// <summary>True if u reaches every node of the set (vacuously true for an empty set).</summary>
-        public bool ReachesAll(string u) => Tree.TryGetNode(u, out var n) && ReachesAll(n);
+        public bool ReachesAll(string u) => Tree.Lookup(u) is DNode n && ReachesAll(n);
 
         public bool ReachesAll(DNode u) {
             Check();
-            if (u.Owner != Tree) return false;
+            if (!Tree.Live(u)) return false;
             return Q1Node == null || Below(u);
         }
     }
@@ -161,11 +162,11 @@ namespace DirectedTrees {
         public VMax(DTree tree) : base(tree, false) { }
 
         /// <summary>Fast rejection: false means u reaches no node of the set; true is not a confirmation.</summary>
-        public bool MayReachSome(string u) => Tree.TryGetNode(u, out var n) && MayReachSome(n);
+        public bool MayReachSome(string u) => Tree.Lookup(u) is DNode n && MayReachSome(n);
 
         public bool MayReachSome(DNode u) {
             Check();
-            return Q1Node != null && u.Owner == Tree && Below(u);
+            return Tree.Live(u) && Q1Node != null && Below(u);
         }
 
         /// <summary>
@@ -173,7 +174,7 @@ namespace DirectedTrees {
         /// block directly after u in Q1, so u reaches some member exactly when the first member after
         /// u in Q1 lies in it: a binary search over the members and one reachability test.
         /// </summary>
-        public bool ReachesSome(string u) => Tree.TryGetNode(u, out var n) && ReachesSome(n);
+        public bool ReachesSome(string u) => Tree.Lookup(u) is DNode n && ReachesSome(n);
 
         public bool ReachesSome(DNode u) {
             if (!MayReachSome(u)) return false;
@@ -194,11 +195,11 @@ namespace DirectedTrees {
         public UMax(DTree tree) : base(tree, false) { }
 
         /// <summary>True if every node of the set reaches v (vacuously true for an empty set).</summary>
-        public bool ReachedByAll(string v) => Tree.TryGetNode(v, out var n) && ReachedByAll(n);
+        public bool ReachedByAll(string v) => Tree.Lookup(v) is DNode n && ReachedByAll(n);
 
         public bool ReachedByAll(DNode v) {
             Check();
-            if (v.Owner != Tree) return false;
+            if (!Tree.Live(v)) return false;
             return Q1Node == null || Above(v);
         }
     }
@@ -252,15 +253,15 @@ namespace DirectedTrees {
         }
 
         /// <summary>Fast rejection: false means no node of the set reaches v; true is not a confirmation.</summary>
-        public bool MayBeReachedBySome(string v) => Tree.TryGetNode(v, out var n) && MayBeReachedBySome(n);
+        public bool MayBeReachedBySome(string v) => Tree.Lookup(v) is DNode n && MayBeReachedBySome(n);
 
         public bool MayBeReachedBySome(DNode v) {
             Check();
-            return Q1Node != null && v.Owner == Tree && Above(v);
+            return Tree.Live(v) && Q1Node != null && Above(v);
         }
 
         /// <summary>True if at least one node of the set reaches v (exact, O(log k)).</summary>
-        public bool ReachedBySome(string v) => Tree.TryGetNode(v, out var n) && ReachedBySome(n);
+        public bool ReachedBySome(string v) => Tree.Lookup(v) is DNode n && ReachedBySome(n);
 
         public bool ReachedBySome(DNode v) => MayBeReachedBySome(v) && Covered(v);
 
@@ -269,11 +270,11 @@ namespace DirectedTrees {
         /// With the collapsed nodes of a tree view as a UMin, this is the visible row that contains
         /// v: null means v itself is visible.
         /// </summary>
-        public string? Covering(string v) => Tree.TryGetNode(v, out var n) ? Covering(n)?.Name : null;
+        public string? Covering(string v) => Tree.Lookup(v) is DNode n ? Covering(n)?.Name : null;
 
         public DNode? Covering(DNode v) {
             Check();
-            if (v.Owner != Tree) return null;
+            if (!Tree.Live(v)) return null;
             int i = TopsBefore(v);
             return i > 0 && DTree.Reaches(_tops[i - 1], v) ? _tops[i - 1] : null;
         }

@@ -3,6 +3,7 @@
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release            run all tests
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench   run the benchmarks
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench dynamic   only the dynamic updates and the tree view
+//   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench review    only the patterns from the review of 1.8.0
 //   ... -- bench --note "idle machine after restart"   remark for the report;  ... -- bench --no-save   no report
 //
 // Every benchmark run also writes its tables as a Markdown report to benchmarks/csharp/ at the
@@ -40,6 +41,7 @@ namespace DirectedTrees.Tests {
                 ("DList operations (List.cs)", Tests.DListOperations),
                 ("DList: markers cannot be inserted, moved or removed", Tests.DListMarkers),
                 ("DList: many end insertions, then one gap (no overflow)", Tests.DListNoOverflow),
+                ("DList: unnamed cells are invisible by name", Tests.DListUnnamedCells),
                 ("random inserts vs reference", Tests.RandomInserts),
                 ("random deletes and moves vs reference", Tests.RandomDeletesAndMoves),
                 ("deep chain", Tests.DeepChain),
@@ -64,7 +66,19 @@ namespace DirectedTrees.Tests {
                 ("sibling insert: same gap many times", Tests.SiblingInsertSameGap),
                 ("subtree end: top-down comb", Tests.SubtreeEndTopDownComb),
                 ("subtree end: inserts mixed with deletes and moves", Tests.SubtreeEndMixed),
-                ("subtree end: hint path always (budget 0)", Tests.SubtreeEndHintPathAlways),
+                ("review: extend the bottom, then a child near the top", Tests.ReviewBottomThenTop),
+                ("review: InsertBefore a first child, deep", Tests.ReviewInsertBeforeFirstChildDeep),
+                ("review: DeleteSubtree and CutNPaste, deep", Tests.ReviewDeleteSubtreeAndMoveDeep),
+                ("review: many siblings", Tests.ReviewManySiblings),
+                ("closing cells come and go", Tests.ClosingCellsComeAndGo),
+                ("no partial state: first insert", Tests.NoPartialStateFirstInsert),
+                ("no partial state: failing operations", Tests.NoPartialStateFailingOperations),
+                ("FromFile rejects a line without operator", Tests.FromFileRejectsBadLine),
+                ("read-only projections", Tests.ReadOnlyProjections),
+                ("strict: lenient default", Tests.StrictLenientDefault),
+                ("strict: queries throw", Tests.StrictThrows),
+                ("constructed nodes: a reused name is not a member", Tests.ReusedNameIsNotAMember),
+                ("IsRoot on an empty tree and with null", Tests.IsRootEmptyAndNull),
             };
             var total = Stopwatch.StartNew();
             foreach (var (name, body) in tests) {
@@ -205,6 +219,23 @@ namespace DirectedTrees.Tests {
             return result;
         }
 
+        /// <summary>Pre-order with a closing cell after the subtree of every node that has children.</summary>
+        public List<string> Euler(bool reverse) {
+            var result = new List<string>();
+            var stack = new Stack<(string Node, bool Done)>();
+            stack.Push((Root!, false));
+            while (stack.Count > 0) {
+                var (n, done) = stack.Pop();
+                if (done) { result.Add(")" + n); continue; }
+                result.Add(n);
+                if (!Children.TryGetValue(n, out var kids) || kids.Count == 0) continue;
+                stack.Push((n, true));
+                IEnumerable<string> order = reverse ? kids : Enumerable.Reverse(kids);
+                foreach (var c in order) stack.Push((c, false));
+            }
+            return result;
+        }
+
         private List<string> Kids(string u) {
             if (!Children.TryGetValue(u, out var list)) {
                 list = new List<string>();
@@ -228,6 +259,8 @@ namespace DirectedTrees.Tests {
             Equal(t.Root, r.Root, "root");
             Seq(t.Q1.ToList(), r.Preorder(false), "Q1");
             Seq(t.Q2.ToList(), r.Preorder(true), "Q2");
+            Seq(RawCells(t.List1), r.Euler(false), "Q1 cells");
+            Seq(RawCells(t.List2), r.Euler(true), "Q2 cells");
             foreach (var v in nodes) {
                 var anc = r.Ancestors(v);
                 Seq(t.PathToRoot(v), anc, $"PathToRoot({v})");
@@ -244,6 +277,14 @@ namespace DirectedTrees.Tests {
                     Equal(t.IsDescendant(v, u), expected, $"IsDescendant({v}, {u})");
                     Equal(t.CanReach(t.GetNode(u), t.GetNode(v)), expected, $"CanReach(handle {u}, handle {v})");
                 }
+        }
+
+        /// <summary>The whole list: node names, and ")x" for the closing cell of node x.</summary>
+        internal static List<string> RawCells(DList q) {
+            var result = new List<string>();
+            for (var c = q.FirstCell.Next!; c != q.LastCell; c = c.Next!)
+                result.Add(c.Name ?? ")" + ((DNode)c.Node!).Name);
+            return result;
         }
 
         private static (DTree, Reference, Random) RandomTree(int n, int seed) {
@@ -330,6 +371,7 @@ namespace DirectedTrees.Tests {
             t.Insert("A", "C");
             Check(t.Q1.IsLeftOf("B", "C"), "B left of C in Q1");
             Check(t.Q2.IsLeftOf("C", "B"), "C left of B in Q2");
+            Seq(t.Q1, t.Q1.ToList(), "Q1 enumerates its nodes");
         }
 
         public static void ExampleFiles() {
@@ -428,6 +470,28 @@ namespace DirectedTrees.Tests {
                 Check(q.Precedes(reference[i - 1], reference[i]), "positions increase along the list");
         }
 
+        public static void DListUnnamedCells() {
+            var q = new DList("Q");
+            foreach (var n in new[] { "a", "b", "c" }) q.InsertBefore(n, Marker.Sink);
+            var a = q.CellOf("a");
+            var u1 = q.InsertNewAfter(null, a);                     // a, u1, b, c
+            var u2 = q.InsertNewAfter(null, u1);                    // a, u1, u2, b, c
+            Seq(q.ToList(), new[] { "a", "b", "c" }, "unnamed cells are not listed");
+            Equal(q.Count, 3, "Count");
+            Equal(q.Next("a"), "b", "Next passes over unnamed cells");
+            Equal(q.Prev("b"), "a", "Prev passes over unnamed cells");
+            Check(DList.Less(a, u1) && DList.Less(u1, u2) && DList.Less(u2, q.CellOf("b")), "unnamed cells have positions");
+            q.InsertAfter("x", "a");                                // directly after a, before the unnamed cells
+            Equal(q.Next("x"), "b", "Next(x)");
+            Check(q.CellOf("x").Next == u1, "x is linked before u1");
+            Seq(q.CutBlock("x", "b"), new[] { "x", "b" }, "CutBlock removes the unnamed cells inside");
+            Seq(q.ToList(), new[] { "a", "c" }, "after CutBlock");
+            Equal(q.Next("a"), "c", "Next(a) after CutBlock");
+            Throws<ArgumentException>(() => q.InsertNewAfter("a", q.FirstCell), "names stay unique");
+            Throws<ArgumentException>(() => q.InsertNewAfter(null, q.LastCell), "nothing follows SINK");
+            Throws<InvalidOperationException>(() => q.CutBlock(Marker.Source, "a"), "markers cannot be cut");
+        }
+
         public static void RandomInserts() {
             for (int seed = 0; seed < 30; seed++) {
                 var (t, r, rnd) = RandomTree(60, seed);
@@ -471,7 +535,10 @@ namespace DirectedTrees.Tests {
             Equal(t.Depth("v5000"), 5000, "depth");
             Check(t.CanReach("v0", "v5000"), "top reaches bottom");
             Check(!t.CanReach("v5000", "v0"), "bottom does not reach top");
-            Equal((t.Q1.RenumberCount, t.Q2.RenumberCount), (0L, 0L), "no renumbering for a chain");
+            // a chain nests every new node into the gap of its parent: renumbering keeps the
+            // positions strictly increasing and the denominators bounded
+            Check(t.Q1.PositionsStrictlyIncrease() && t.Q2.PositionsStrictlyIncrease(), "positions increase");
+            Check(t.Q1.MaxDenominator() <= 1L << 40 && t.Q2.MaxDenominator() <= 1L << 40, "denominators bounded");
         }
 
         public static void WideNode() {
@@ -829,53 +896,45 @@ namespace DirectedTrees.Tests {
         }
 
         public static void SiblingInsertRandomMix() {
-            int saved = DTree.Budget;
-            try {
-                foreach (var budget in new[] { saved, 0 }) {
-                    DTree.Budget = budget;
-                    for (int seed = 0; seed < 15; seed++) {
-                        var (t, r, rnd) = RandomTree(20, seed);
-                        int k = 0;
-                        for (int step = 0; step < 120; step++) {
-                            var nodes = r.Nodes();
-                            var inner = nodes.Where(n => n != r.Root).ToList();
-                            double x = rnd.NextDouble();
-                            var name = $"x{k}";
-                            if (x < 0.25 || inner.Count == 0) {
-                                var p = nodes[rnd.Next(nodes.Count)];
-                                t.Insert(p, name);
-                                r.Insert(p, name);
-                                k++;
-                            } else if (x < 0.5) {
-                                var sb = inner[rnd.Next(inner.Count)];
-                                t.InsertAfter(sb, name);
-                                r.InsertAfter(sb, name);
-                                k++;
-                            } else if (x < 0.75) {
-                                var sb = inner[rnd.Next(inner.Count)];
-                                t.InsertBefore(sb, name);
-                                r.InsertBefore(sb, name);
-                                k++;
-                            } else if (x < 0.85 && inner.Count > 10) {
-                                var v = inner[rnd.Next(inner.Count)];
-                                t.Delete(v);
-                                r.Delete(v);
-                            } else if (inner.Count > 10) {
-                                var u = inner[rnd.Next(inner.Count)];
-                                var banned = new HashSet<string>(t.Subtree(u));
-                                var targets = nodes.Where(n => !banned.Contains(n)).ToList();
-                                var p = targets[rnd.Next(targets.Count)];
-                                t.CutNPaste(u, p);
-                                r.Move(u, p);
-                            }
-                            CheckAgainst(t, r, rnd);
-                            foreach (var v in r.Nodes().OrderBy(_ => rnd.Next()).Take(3))
-                                Equal(t.SubtreeLast(v), RefLast(r, v), $"seed {seed}, step {step}: SubtreeLast({v})");
-                        }
+            for (int seed = 0; seed < 15; seed++) {
+                var (t, r, rnd) = RandomTree(20, seed);
+                int k = 0;
+                for (int step = 0; step < 120; step++) {
+                    var nodes = r.Nodes();
+                    var inner = nodes.Where(n => n != r.Root).ToList();
+                    double x = rnd.NextDouble();
+                    var name = $"x{k}";
+                    if (x < 0.25 || inner.Count == 0) {
+                        var p = nodes[rnd.Next(nodes.Count)];
+                        t.Insert(p, name);
+                        r.Insert(p, name);
+                        k++;
+                    } else if (x < 0.5) {
+                        var sb = inner[rnd.Next(inner.Count)];
+                        t.InsertAfter(sb, name);
+                        r.InsertAfter(sb, name);
+                        k++;
+                    } else if (x < 0.75) {
+                        var sb = inner[rnd.Next(inner.Count)];
+                        t.InsertBefore(sb, name);
+                        r.InsertBefore(sb, name);
+                        k++;
+                    } else if (x < 0.85 && inner.Count > 10) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.Delete(v);
+                        r.Delete(v);
+                    } else if (inner.Count > 10) {
+                        var u = inner[rnd.Next(inner.Count)];
+                        var banned = new HashSet<string>(t.Subtree(u));
+                        var targets = nodes.Where(n => !banned.Contains(n)).ToList();
+                        var p = targets[rnd.Next(targets.Count)];
+                        t.CutNPaste(u, p);
+                        r.Move(u, p);
                     }
+                    CheckAgainst(t, r, rnd);
+                    foreach (var v in r.Nodes().OrderBy(_ => rnd.Next()).Take(3))
+                        Equal(t.SubtreeLast(v), RefLast(r, v), $"seed {seed}, step {step}: SubtreeLast({v})");
                 }
-            } finally {
-                DTree.Budget = saved;
             }
         }
 
@@ -955,16 +1014,302 @@ namespace DirectedTrees.Tests {
                 CheckAgainst(t, r, rnd);
             }
         }
+    }
 
-        public static void SubtreeEndHintPathAlways() {
-            int saved = DTree.Budget;
-            DTree.Budget = 0;           // every lookup of a subtree's end goes through the validated hint
-            try {
-                SubtreeEndMixed();
-                SubtreeEndTopDownComb();
-            } finally {
-                DTree.Budget = saved;
+    /// <summary>Tests for 2.1.0: the points of Onur Safi's review of DTree 1.8.0.</summary>
+    internal static partial class Tests {
+        private static (DTree, Reference) Chain(int depth) {
+            var t = new DTree();
+            var r = new Reference();
+            t.Insert("r", "c0");
+            r.Insert("r", "c0");
+            for (int i = 1; i < depth; i++) {
+                t.Insert($"c{i - 1}", $"c{i}");
+                r.Insert($"c{i - 1}", $"c{i}");
             }
+            return (t, r);
+        }
+
+        public static void ReviewBottomThenTop() {
+            // a deep branch is extended at the bottom, then a child is added near its top
+            const int d = 1500;
+            var (t, r) = Chain(d);
+            var bottom = $"c{d - 1}";
+            for (int k = 0; k < 300; k++) {
+                t.Insert(bottom, $"b{k}");
+                r.Insert(bottom, $"b{k}");
+                bottom = $"b{k}";
+                t.Insert($"c{k}", $"y{k}");
+                r.Insert($"c{k}", $"y{k}");
+            }
+            CheckAgainst(t, r, new Random(1));
+            Equal(t.SubtreeLast("c0"), "y0", "SubtreeLast(c0)");
+            Equal(t.SubtreeLast("c1"), "y1", "SubtreeLast(c1)");
+        }
+
+        public static void ReviewInsertBeforeFirstChildDeep() {
+            const int d = 1500;
+            var (t, r) = Chain(d);
+            for (int i = 0; i < d; i += 7) {
+                t.InsertBefore($"c{i}", $"w{i}");                      // c{i} is the first child of its parent
+                r.InsertBefore($"c{i}", $"w{i}");
+            }
+            CheckAgainst(t, r, new Random(2));
+        }
+
+        public static void ReviewDeleteSubtreeAndMoveDeep() {
+            const int d = 1500;
+            var (t, r) = Chain(d);
+            t.Insert("r", "s");
+            r.Insert("r", "s");
+            var rnd = new Random(3);
+            for (int i = d - 10; i > 10; i -= 97) {
+                t.CutNPaste($"c{i}", "s");
+                r.Move($"c{i}", "s");
+                CheckAgainst(t, r, rnd);
+            }
+            var expected = t.Subtree("c5");
+            Seq(t.DeleteSubtree("c5"), expected, "DeleteSubtree(c5)");
+            r.DeleteSubtree("c5");
+            CheckAgainst(t, r, rnd);
+        }
+
+        public static void ReviewManySiblings() {
+            var t = new DTree();
+            var r = new Reference();
+            t.Insert("r", "p");
+            r.Insert("r", "p");
+            for (int i = 0; i < 300; i++) { t.Insert("p", $"k{i}"); r.Insert("p", $"k{i}"); }
+            for (int i = 0; i < 300; i += 3) {
+                t.InsertAfter($"k{i}", $"a{i}"); r.InsertAfter($"k{i}", $"a{i}");
+                t.InsertBefore($"k{i}", $"b{i}"); r.InsertBefore($"k{i}", $"b{i}");
+            }
+            for (int i = 299; i >= 0; i -= 2) { t.Delete($"k{i}"); r.Delete($"k{i}"); }
+            CheckAgainst(t, r, new Random(4));
+        }
+
+        public static void ClosingCellsComeAndGo() {
+            var t = new DTree();
+            t.Insert("A", "B");
+            Seq(RawCells(t.List1), new[] { "A", "B", ")A" }, "after A: B");
+            t.Insert("B", "C");
+            Seq(RawCells(t.List1), new[] { "A", "B", "C", ")B", ")A" }, "after B: C (Q1)");
+            Seq(RawCells(t.List2), new[] { "A", "B", "C", ")B", ")A" }, "after B: C (Q2)");
+            t.Delete("C");                                              // B has no children left
+            Seq(RawCells(t.List1), new[] { "A", "B", ")A" }, "after Delete(C)");
+            t.DeleteSubtree("B");
+            Seq(RawCells(t.List1), new[] { "A" }, "after DeleteSubtree(B), Q1");
+            Seq(RawCells(t.List2), new[] { "A" }, "after DeleteSubtree(B), Q2");
+            t.Insert("A", "B");
+            t.Insert("A", "C");
+            t.CutNPaste("C", "B");
+            Seq(RawCells(t.List1), new[] { "A", "B", "C", ")B", ")A" }, "after CutNPaste(C, B)");
+        }
+
+        /// <summary>Everything an operation could change: both lists cell by cell, positions, parents, children, names.</summary>
+        private static string Snapshot(DTree t) {
+            var sb = new StringBuilder();
+            foreach (var q in new[] { t.List1, t.List2 }) {
+                for (DList.Cell? c = q.FirstCell; c != null; c = c.Next)
+                    sb.Append(c.Name ?? ")" + ((DNode)c.Node!).Name).Append('@').Append(c.Num).Append('/').Append(c.Den).Append(' ');
+                sb.Append('|');
+            }
+            foreach (var v in t.Nodes.OrderBy(n => n, StringComparer.Ordinal))
+                sb.Append(v).Append('<').Append(t.GetParent(v)).Append(':').Append(string.Join(",", t.Children(v))).Append(' ');
+            sb.Append('|').Append(t.Root).Append('|').Append(t.Size);
+            return sb.ToString();
+        }
+
+        public static void NoPartialStateFirstInsert() {
+            string? none = null;
+            var cases = new (string Name, Action<DTree> Op, Type Exception)[] {
+                ("Insert(A, A)", t => t.Insert("A", "A"), typeof(ArgumentException)),
+                ("Insert(A, null)", t => t.Insert("A", none!), typeof(ArgumentNullException)),
+                ("Insert(null, B)", t => t.Insert(none!, "B"), typeof(ArgumentNullException)),
+                ("Insert(A, \"\")", t => t.Insert("A", ""), typeof(ArgumentException)),
+                ("Insert(\"\", B)", t => t.Insert("", "B"), typeof(ArgumentException)),
+                ("Insert(A, SINK)", t => t.Insert("A", Marker.Sink), typeof(ArgumentException)),
+                ("Insert(SOURCE, B)", t => t.Insert(Marker.Source, "B"), typeof(ArgumentException)),
+            };
+            foreach (var (name, op, exception) in cases) {
+                var t = new DTree();
+                try {
+                    op(t);
+                    Check(false, $"{name}: expected {exception.Name}");
+                } catch (Exception e) {
+                    Check(exception.IsInstanceOfType(e), $"{name}: expected {exception.Name}, got {e.GetType().Name}");
+                }
+                Check(t.Size == 0 && t.Root == null && t.Q1.Count == 0 && t.Q2.Count == 0, $"{name}: tree stays empty");
+                Equal(RawCells(t.List1).Count + RawCells(t.List2).Count, 0, $"{name}: no cells");
+                t.Insert("A", "B");                                     // the tree is still usable
+                Seq(t.Q1.ToList(), new[] { "A", "B" }, $"{name}: usable afterwards");
+            }
+        }
+
+        public static void NoPartialStateFailingOperations() {
+            var (t, _, _) = RandomTree(30, 4);
+            t.InsertAfter("n1", "s1");
+            var other = new DTree("other").Insert("X", "Y");
+            var gone = t.Insert("n3", "gone");
+            t.Delete(gone);
+            string? none = null;
+            var failing = new List<(string Name, Action Op)> {
+                ("Insert(nobody, z)", () => t.Insert("nobody", "z")),
+                ("Insert(n2, n5)", () => t.Insert("n2", "n5")),
+                ("Insert(n2, null)", () => t.Insert("n2", none!)),
+                ("Insert(n2, \"\")", () => t.Insert("n2", "")),
+                ("Insert(gone, z)", () => t.Insert(gone, "z")),
+                ("Insert(other, z)", () => t.Insert(other, "z")),
+                ("InsertAfter(root, z)", () => t.InsertAfter("n0", "z")),
+                ("InsertBefore(root, z)", () => t.InsertBefore("n0", "z")),
+                ("InsertAfter(n1, n2)", () => t.InsertAfter("n1", "n2")),
+                ("InsertBefore(nobody, z)", () => t.InsertBefore("nobody", "z")),
+                ("Delete(root)", () => t.Delete("n0")),
+                ("Delete(nobody)", () => t.Delete("nobody")),
+                ("Delete(gone)", () => t.Delete(gone)),
+                ("DeleteSubtree(root)", () => t.DeleteSubtree("n0")),
+                ("CutNPaste(root, n1)", () => t.CutNPaste("n0", "n1")),
+                ("CutNPaste(n1, n1)", () => t.CutNPaste("n1", "n1")),
+                ("CutNPaste(n0, nobody)", () => t.CutNPaste("n0", "nobody")),
+                ("AddLine(no operator)", () => t.AddLine("no operator here")),
+            };
+            var sub = t.Subtree("n1");
+            if (sub.Count > 1) failing.Add(("CutNPaste(n1, own descendant)", () => t.CutNPaste("n1", sub[^1])));
+            foreach (var (name, op) in failing) {
+                var before = Snapshot(t);
+                bool threw = false;
+                try { op(); } catch (Exception e) when (e is ArgumentException || e is KeyNotFoundException || e is InvalidOperationException) { threw = true; }
+                Check(threw, $"{name} throws");
+                Check(Snapshot(t) == before, $"{name} leaves the tree unchanged");
+            }
+        }
+
+        public static void FromFileRejectsBadLine() {
+            var path = System.IO.Path.GetTempFileName();
+            try {
+                File.WriteAllText(path, "A: B\njust text\nB: C\n");
+                Throws<ArgumentException>(() => DTree.FromFile(path), "a line without ':', '>' or '<'");
+            } finally {
+                File.Delete(path);
+            }
+        }
+
+        public static void ReadOnlyProjections() {
+            var t = new DTree();
+            t.Insert("A", "B");
+            t.Insert("B", "C");
+            t.Insert("A", "D");
+            var forbidden = new[] { "InsertAfter", "InsertBefore", "Remove", "CutBlock", "PasteBlockAfter" };
+            foreach (var m in typeof(Projection).GetMethods())
+                Check(!forbidden.Contains(m.Name), $"Projection has no {m.Name}");
+            var q1 = t.Q1;
+            Seq(q1, new[] { "A", "B", "C", "D" }, "Q1 nodes");
+            Seq(q1.ToList(true), new[] { Marker.Source, "A", "B", "C", "D", Marker.Sink }, "Q1 with markers");
+            Seq(t.Q2, new[] { "A", "D", "B", "C" }, "Q2 nodes");
+            Equal(q1.Count, 4, "Count");
+            Equal(q1.Next("C"), "D", "Next passes over the closing cell of B");
+            Equal(q1.Prev("D"), "C", "Prev passes over the closing cell of B");
+            Equal(q1.Next("D"), Marker.Sink, "Next of the last node");
+            Equal(q1.Prev("A"), Marker.Source, "Prev of the first node");
+            Check(q1.IsLeftOf("C", "D") && q1.Precedes("A", "C") && q1.IsRightOf("D", "C"), "order");
+            Check(q1.IsSelfOrLeftOf("B", "B") && q1.IsSelfOrRightOf("B", "B"), "self-or");
+            Check(q1.Contains("C") && !q1.Contains("Z") && q1.IsAllocated("C") && q1.IsNotAllocated("Z"), "membership");
+            Check(q1.IndexValue("C") < q1.IndexValue("D") && q1.Index("Z") == null, "Index");
+            Check(q1.IsSameAs(t.Q1) && !q1.IsSameAs(t.Q2), "IsSameAs");
+            Equal(q1.ToString(), "P1.Q1: [A, B, C, D]", "ToString");
+            Check(ReferenceEquals(t.Q1, q1), "one live view per list");
+            t.Insert("C", "E");
+            Seq(q1, new[] { "A", "B", "C", "E", "D" }, "the view is live");
+        }
+
+        private static (DTree, DNode) StrictTree(bool strict) {
+            var t = new DTree("S", strict);
+            t.Insert("A", "B");
+            t.Insert("B", "C");
+            var gone = t.Insert("A", "X");
+            t.Delete(gone);
+            return (t, gone);
+        }
+
+        public static void StrictLenientDefault() {
+            var (t, gone) = StrictTree(false);
+            string? none = null;
+            Check(!t.Strict, "not strict by default");
+            Check(!t.CanReach("A", "Bx") && !t.CanReach("Bx", "A") && !t.CanReach(gone, t.GetNode("A")), "unknown nodes reach nothing");
+            Check(t.CanNotReach("A", "Bx"), "CanNotReach");
+            Check(!t.IsRoot("nobody") && !t.IsRoot(none), "IsRoot of unknown names");
+            Check(!t.VMin(new[] { "C" }).ReachesAll("nobody"), "ReachesAll(nobody)");
+            Equal(t.UMin(new[] { "B" }).Covering("nobody"), null, "Covering(nobody)");
+        }
+
+        public static void StrictThrows() {
+            var (t, gone) = StrictTree(true);
+            var a = t.GetNode("A");
+            string? none = null;
+            Check(t.Strict, "strict");
+            Check(t.CanReach("A", "C") && !t.CanReach("C", "A"), "known nodes answer as usual");
+            var byName = new List<(string, Action)> {
+                ("CanReach(A, Bx)", () => t.CanReach("A", "Bx")),
+                ("CanReach(Bx, A)", () => t.CanReach("Bx", "A")),
+                ("CanNotReach(A, Bx)", () => t.CanNotReach("A", "Bx")),
+                ("IsAncestor(A, Bx)", () => t.IsAncestor("A", "Bx")),
+                ("IsDescendant(Bx, A)", () => t.IsDescendant("Bx", "A")),
+                ("IsRoot(nobody)", () => t.IsRoot("nobody")),
+                ("IsRoot(null)", () => t.IsRoot(none)),
+            };
+            var set = new[] { "C" };
+            var vmin = t.VMin(set); var vmax = t.VMax(set); var umin = t.UMin(set); var umax = t.UMax(set);
+            byName.Add(("VMin.ReachesAll", () => vmin.ReachesAll("nobody")));
+            byName.Add(("VMax.MayReachSome", () => vmax.MayReachSome("nobody")));
+            byName.Add(("VMax.ReachesSome", () => vmax.ReachesSome("nobody")));
+            byName.Add(("UMax.ReachedByAll", () => umax.ReachedByAll("nobody")));
+            byName.Add(("UMin.MayBeReachedBySome", () => umin.MayBeReachedBySome("nobody")));
+            byName.Add(("UMin.ReachedBySome", () => umin.ReachedBySome("nobody")));
+            byName.Add(("UMin.Covering", () => umin.Covering("nobody")));
+            foreach (var (name, call) in byName) Throws<KeyNotFoundException>(call, $"strict {name}");
+            var byHandle = new List<(string, Action)> {
+                ("CanReach(gone, A)", () => t.CanReach(gone, a)),
+                ("CanReach(A, gone)", () => t.CanReach(a, gone)),
+                ("IsRoot(gone)", () => t.IsRoot(gone)),
+                ("VMin.ReachesAll(gone)", () => vmin.ReachesAll(gone)),
+                ("VMax.ReachesSome(gone)", () => vmax.ReachesSome(gone)),
+                ("UMax.ReachedByAll(gone)", () => umax.ReachedByAll(gone)),
+                ("UMin.ReachedBySome(gone)", () => umin.ReachedBySome(gone)),
+                ("UMin.Covering(gone)", () => umin.Covering(gone)),
+            };
+            foreach (var (name, call) in byHandle) Throws<ArgumentException>(call, $"strict {name}");
+            // membership tests never throw
+            Check(!t.Contains("nobody") && !t.SameSubtree("A", "nobody") && !umin.Contains("nobody"), "membership tests");
+            umin.Discard("nobody");
+            var dir = FindExamples();
+            if (dir != null) {
+                var f = DTree.FromFile(System.IO.Path.Combine(dir, "siblings.csx"), strict: true);
+                Throws<KeyNotFoundException>(() => f.CanReach("01", "nobody"), "FromFile(strict: true)");
+            }
+        }
+
+        public static void ReusedNameIsNotAMember() {
+            // a member that was deleted stays out, even when a new node gets its name
+            var t = new DTree();
+            t.Insert("r", "X");
+            t.Insert("r", "Y");
+            var c = ConstructedNodes.Of(t, new[] { "X" });
+            t.Delete("X");
+            t.Insert("Y", "X");                                         // new and unrelated
+            foreach (var s in new ConstructedNode[] { c.VMin, c.VMax, c.UMin, c.UMax }) {
+                Equal(s.Count, 0, "no members");
+                Check(!s.Contains("X"), "the new X is not a member");
+            }
+            Check(!c.VMax.ReachesSome("r") && !c.UMin.ReachedBySome("X") && c.VMin.ReachesAll("r"), "queries on the empty set");
+        }
+
+        public static void IsRootEmptyAndNull() {
+            var t = new DTree();
+            string? none = null;
+            Check(!t.IsRoot(none) && !t.IsRoot("A"), "empty tree has no root");
+            t.Insert("A", "B");
+            Check(t.IsRoot("A") && t.IsRoot(t.GetNode("A")), "A is the root");
+            Check(!t.IsRoot("B") && !t.IsRoot(none), "B and null are not");
         }
     }
 
@@ -984,13 +1329,14 @@ namespace DirectedTrees.Tests {
         public static void RunBench(string[] args) {
             // Same number format as the Python report (10,000 and 0.013), whatever the system's culture.
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            bool save = true, dynamic = false;
+            bool save = true, dynamic = false, review = false;
             string note = "";
             var sizes = new List<int>();
             for (int i = 0; i < args.Length; i++) {
                 if (args[i] == "--no-save") save = false;
                 else if (args[i] == "--note" && i + 1 < args.Length) note = args[++i];
                 else if (args[i] == "dynamic") dynamic = true;
+                else if (args[i] == "review") review = true;
                 else sizes.Add(int.Parse(args[i], CultureInfo.InvariantCulture));
             }
             var started = DateTime.Now;
@@ -998,7 +1344,8 @@ namespace DirectedTrees.Tests {
             var tee = save ? new Tee(console) : null;
             if (tee != null) System.Console.SetOut(tee);
             try {
-                if (dynamic) Bench.RunDynamic();
+                if (review) Bench.RunReview();
+                else if (dynamic) Bench.RunDynamic();
                 else Bench.Run(sizes.ToArray());
             } finally {
                 if (tee != null) {
@@ -1109,12 +1456,119 @@ namespace DirectedTrees.Tests {
             Sets(100_000, new[] { 10, 100, 1_000, 10_000 }, 1_000, 200);
             Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
             TreeView(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 20_000);
+            Review();
+        }
+
+        public static void RunReview() {
+            Console.WriteLine($"DTree benchmarks (C#, .NET {Environment.Version})");
+            Review();
         }
 
         public static void RunDynamic() {
             Console.WriteLine($"DTree dynamic updates (C#, .NET {Environment.Version})");
             Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
             TreeView(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 20_000);
+        }
+
+        // -- patterns from the review of DTree 1.8.0 --------------------------------------------
+
+        private static (DTree, List<DNode>) Chain(int depth) {
+            var t = new DTree("R");
+            var nodes = new List<DNode> { t.Insert("r", "c0") };
+            for (int i = 1; i < depth; i++) nodes.Add(t.Insert(nodes[^1], $"c{i}"));
+            return (t, nodes);
+        }
+
+        private static void Review() {
+            Chain(1_000);                                               // warm-up (JIT)
+            Console.WriteLine("\nPatterns from the review of DTree 1.8.0\n");
+            Console.WriteLine("Complexity patterns pointed out by Onur Safi. Each new child goes directly before its parent's closing cell, so none of them needs a search for the end of a subtree; in 1.8.0 the first two grew linearly with the depth.\n");
+            Console.WriteLine("| pattern | depth | operations | µs per operation |");
+            Console.WriteLine("| --- | ---: | ---: | ---: |");
+            const int rounds = 1_000;
+            foreach (var depth in new[] { 5_000, 20_000, 80_000 }) {
+                // a deep branch is extended at the bottom, then a child is added near its top
+                var (t, chain) = Chain(depth);
+                var bottom = chain[^1];
+                var sw = Stopwatch.StartNew();
+                for (int r = 0; r < rounds; r++) {
+                    bottom = t.Insert(bottom, $"b{r}");
+                    t.Insert(chain[r], $"y{r}");
+                }
+                double us = sw.Elapsed.TotalMilliseconds * 1000 / rounds;
+                Console.WriteLine($"| extend the bottom, then a child near the top (one round = 2 insertions) | {depth:N0} | {rounds:N0} | {us:F2} |");
+            }
+            foreach (var depth in new[] { 5_000, 20_000, 80_000 }) {
+                var (t, chain) = Chain(depth);
+                int step = Math.Max(1, depth / rounds);
+                int ops = 0;
+                var sw = Stopwatch.StartNew();
+                for (int i = 0; i < depth && ops < rounds; i += step, ops++)
+                    t.InsertBefore(chain[i], $"w{i}");                  // chain[i] is the first child of its parent
+                double us = sw.Elapsed.TotalMilliseconds * 1000 / ops;
+                Console.WriteLine($"| InsertBefore a first child | {depth:N0} | {ops:N0} | {us:F2} |");
+            }
+
+            Console.WriteLine("\nNodes with many children: the position among the siblings is still found in the list of children, so these operations grow with the number of siblings.\n");
+            Console.WriteLine("| pattern | children | operations | µs per operation |");
+            Console.WriteLine("| --- | ---: | ---: | ---: |");
+            foreach (var k in new[] { 20_000, 80_000 }) {
+                var t = new DTree("S");
+                var p = t.Insert("r", "p");
+                var kids = new List<DNode>();
+                for (int i = 0; i < k; i++) kids.Add(t.Insert(p, $"k{i}"));
+                var sw = Stopwatch.StartNew();
+                for (int i = k - 1; i >= 0; i--) t.Delete(kids[i]);
+                double us = sw.Elapsed.TotalMilliseconds * 1000 / k;
+                Console.WriteLine($"| delete the children, last to first | {k:N0} | {k:N0} | {us:F2} |");
+                t = new DTree("S");
+                p = t.Insert("r", "p");
+                kids.Clear();
+                for (int i = 0; i < k; i++) kids.Add(t.Insert(p, $"k{i}"));
+                int ops = Math.Min(k, 10_000);
+                sw.Restart();
+                for (int i = 0; i < ops; i++) t.InsertAfter(kids[k - 1 - i % 10], $"a{i}");
+                us = sw.Elapsed.TotalMilliseconds * 1000 / ops;
+                Console.WriteLine($"| InsertAfter one of the last children | {k:N0} | {ops:N0} | {us:F2} |");
+            }
+
+            Console.WriteLine("\nA constructed node is recomputed on its next use after any deletion or move in the tree, O(k log k) for k members, even if the change does not touch the set.\n");
+            Console.WriteLine("| pattern | members | rounds | ms per round |");
+            Console.WriteLine("| --- | ---: | ---: | ---: |");
+            {
+                const int members = 100_000, unrelated = 1_000;
+                var (t, names, _) = Build(0, 2 * members);
+                var vmin = t.VMin(names.Skip(1).Take(members));
+                vmin.ReachesAll(names[0]);
+                var sw = Stopwatch.StartNew();
+                for (int r = 0; r < unrelated; r++) {
+                    t.Insert(names[^1], $"z{r}");
+                    t.Delete($"z{r}");
+                    vmin.ReachesAll(names[0]);
+                }
+                double ms = sw.Elapsed.TotalMilliseconds / unrelated;
+                Console.WriteLine($"| unrelated insert + delete, then a query | {members:N0} | {unrelated:N0} | {ms:F3} |");
+            }
+
+            Console.WriteLine("\nMemory, measured with GC.GetTotalMemory (closing cells included).\n");
+            Console.WriteLine("| structure | nodes | bytes per node |");
+            Console.WriteLine("| --- | ---: | ---: |");
+            const int n = 100_000;
+            foreach (var (label, make) in new (string, Func<object>)[] {
+                         ("DTree, random tree", () => Build(0, n).Tree),
+                         ("DTree, chain", () => Build(1, n).Tree),
+                         ("parent dictionary", () => {
+                             var d = new Dictionary<string, string>();
+                             for (int i = 1; i < n; i++) d[$"n{i}"] = $"n{i - 1}";
+                             return d;
+                         }),
+                     }) {
+                long before = GC.GetTotalMemory(true);
+                var obj = make();
+                long after = GC.GetTotalMemory(true);
+                Console.WriteLine($"| {label} | {n:N0} | {(after - before) / (double)n:N0} |");
+                GC.KeepAlive(obj);
+            }
         }
 
         // -- dynamic updates: insertions and queries alternating --------------------------------

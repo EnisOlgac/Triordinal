@@ -80,5 +80,44 @@ class TestDList(unittest.TestCase):
         self.check(q, ref)
 
 
+class TestUnnamedCells(unittest.TestCase):
+    """Unnamed cells (DTree's closing cells) hold a position but are passed over by name."""
+
+    def test_unnamed_cells_are_invisible_by_name(self):
+        q = DList("Q")
+        for n in "abc":
+            q.insert_before(n, SINK)
+        a = q._cells["a"]
+        u1 = q._insert_cell_after(None, a)          # a, u1, b, c
+        u2 = q._insert_cell_after(None, u1)         # a, u1, u2, b, c
+        self.assertEqual(list(q), ["a", "b", "c"])
+        self.assertEqual(len(q), 3)
+        self.assertEqual((q.next("a"), q.prev("b")), ("b", "a"))
+        self.assertTrue(DList._lt(a, u1) and DList._lt(u1, u2) and DList._lt(u2, q._cells["b"]))
+        q.insert_after("x", "a")                    # directly after a, before the unnamed cells
+        self.assertEqual(q.next("x"), "b")
+        self.assertIs(q._cells["x"].next, u1)
+        self.assertEqual(q.cut_block("x", "b"), ["x", "b"])   # unnamed cells inside go too
+        self.assertEqual(list(q), ["a", "c"])
+        self.assertEqual(q.next("a"), "c")
+
+    def test_cell_level_move_keeps_cells(self):
+        q = DList("Q")
+        for n in "abcde":
+            q.insert_before(n, SINK)
+        b, d = q._cells["b"], q._cells["d"]
+        block = q._cut_cells(b, d, forget=False)
+        self.assertEqual([c.name for c in block], ["b", "c", "d"])
+        q._paste_cells_after(block, q._cells["e"])
+        self.assertEqual(list(q), ["a", "e", "b", "c", "d"])
+        self.assertIs(q._cells["c"], block[1])
+        with self.assertRaises(ValueError):
+            q._insert_cell_after("a", q.first)       # names stay unique
+        with self.assertRaises(ValueError):
+            q._insert_cell_after(None, q.last)       # nothing follows SINK
+        with self.assertRaises(ValueError):
+            q.cut_block(SOURCE, "a")                 # markers cannot be cut
+
+
 if __name__ == "__main__":
     unittest.main()

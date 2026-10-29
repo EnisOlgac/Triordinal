@@ -6,6 +6,10 @@ strictly between them, so normally no other element moves. Rational positions we
 Enis Olgac's idea. Only when a denominator would exceed 64 bits is the smallest
 surrounding region with enough room renumbered with simple fractions k/2**32; larger
 regions must be sparser before they are accepted (as in Bender et al., ESA 2002).
+
+A list may also hold unnamed cells: they have a position like any other cell but no
+name, so iteration, ``next``/``prev`` and all lookups by name pass over them. DTree uses
+them as the closing cell of each node with children, which marks the end of its subtree.
 """
 
 from __future__ import annotations
@@ -25,13 +29,13 @@ _GROWTH = 2  # each doubling of the region raises the required spacing by this f
 class _Cell:
     __slots__ = ("name", "prev", "next", "num", "den", "node")
 
-    def __init__(self, name: str) -> None:
-        self.name = name
+    def __init__(self, name: Optional[str]) -> None:
+        self.name = name  # None for an unnamed cell
         self.prev: Optional[_Cell] = None
         self.next: Optional[_Cell] = None
         self.num = 0
         self.den = 1
-        self.node: Optional["DNode"] = None  # the tree node owning this cell (DTree only)
+        self.node = None  # the node owning this cell (a DTree or DGraph node handle)
 
 
 class DList:
@@ -136,6 +140,50 @@ class DList:
         cell.next.prev = cell.prev
         cell.prev = cell.next = None
 
+    # -- cell-level operations for the node handles of DTree and DGraph ---------------
+    def _insert_cell_after(self, name: Optional[str], anchor: _Cell) -> _Cell:
+        """A new cell directly after ``anchor``; ``name`` None makes an unnamed cell.
+        The position is computed while linking; a name is registered only afterwards."""
+        if name is not None and name in self._cells:
+            raise ValueError(f"{name!r} is already in {self.name}")
+        if anchor is self.last:
+            raise ValueError("nothing can follow SINK")
+        cell = _Cell(name)
+        self._link_after(cell, anchor)
+        if name is not None:
+            self._cells[name] = cell
+        return cell
+
+    def _remove_cell(self, cell: _Cell) -> None:
+        self._unlink(cell)
+        if cell.name is not None:
+            del self._cells[cell.name]
+
+    def _cut_cells(self, a: _Cell, b: _Cell, forget: bool) -> List[_Cell]:
+        """Unlink the contiguous block a..b and return its cells in order. With ``forget``
+        their names are removed from the list; otherwise they stay registered, to be pasted
+        again with _paste_cells_after (a move)."""
+        cells, c = [], a
+        while True:
+            cells.append(c)
+            if c is b:
+                break
+            c = c.next
+        a.prev.next = b.next
+        b.next.prev = a.prev
+        a.prev = b.next = None
+        if forget:
+            for c in cells:
+                if c.name is not None:
+                    del self._cells[c.name]
+        return cells
+
+    def _paste_cells_after(self, cells: List[_Cell], anchor: _Cell) -> None:
+        """Link cut cells, in order, directly after ``anchor``; they get new positions."""
+        for c in cells:
+            self._link_after(c, anchor)
+            anchor = c
+
     # -- public -----------------------------------------------------------
     def __contains__(self, name: str) -> bool:
         return name in self._cells
@@ -169,11 +217,17 @@ class DList:
         return name not in self._cells
 
     def next(self, name: str) -> Optional[str]:
+        """Name of the next named cell (SINK after the last one), None after SINK."""
         nxt = self._cells[name].next
+        while nxt is not None and nxt.name is None:
+            nxt = nxt.next
         return nxt.name if nxt else None
 
     def prev(self, name: str) -> Optional[str]:
+        """Name of the previous named cell (SOURCE before the first one), None before SOURCE."""
         prv = self._cells[name].prev
+        while prv is not None and prv.name is None:
+            prv = prv.prev
         return prv.name if prv else None
 
     def is_left_of(self, v: str, u: str) -> bool:
@@ -241,19 +295,12 @@ class DList:
         self._unlink(self._cells.pop(name))
 
     def cut_block(self, first: str, last: str) -> List[str]:
-        """Remove the contiguous block first..last and return its names in order."""
-        a, b = self._cells[first], self._cells[last]
-        names, cell = [], a
-        while True:
-            names.append(cell.name)
-            if cell is b:
-                break
-            cell = cell.next
-        a.prev.next = b.next
-        b.next.prev = a.prev
-        for n in names:
-            self._cells.pop(n)
-        return names
+        """Remove the contiguous block first..last and return its names in order
+        (unnamed cells inside the block are removed as well)."""
+        if first in (SOURCE, SINK) or last in (SOURCE, SINK):
+            raise ValueError("markers cannot be removed")
+        cells = self._cut_cells(self._cells[first], self._cells[last], forget=True)
+        return [c.name for c in cells if c.name is not None]
 
     def paste_block_after(self, names: List[str], anchor: str) -> None:
         for n in names:
@@ -263,8 +310,13 @@ class DList:
     def __iter__(self) -> Iterator[str]:
         cell = self.first.next
         while cell is not self.last:
-            yield cell.name
+            if cell.name is not None:
+                yield cell.name
             cell = cell.next
+
+    def __len__(self) -> int:
+        """Number of named cells, without the markers."""
+        return len(self._cells) - 2
 
     def to_list(self, with_markers: bool = False) -> List[str]:
         body = list(self)
@@ -274,4 +326,4 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 __all__ = ["DList", "SOURCE", "SINK"]
-__version__ = "2.0.0"
+__version__ = "2.1.0"

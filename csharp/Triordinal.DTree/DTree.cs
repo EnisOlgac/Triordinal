@@ -1,3 +1,4 @@
+using System.Collections;
 using Triordinal;
 
 namespace DirectedTrees {
@@ -16,21 +17,80 @@ namespace DirectedTrees {
 
         internal DTree? Owner;                  // null once the node has been removed
         internal DNode? Up;                     // parent; the SOURCE sentinel for the root
-        internal List<DNode>? Kids;             // children in insertion order (Q1 order)
+        internal List<DNode>? Kids;             // children in Q1 order
         internal DList.Cell C1 = null!;         // position in Q1
         internal DList.Cell C2 = null!;         // position in Q2
-        internal DNode? Last;                   // hint: last node of the subtree in Q1 (validated before use)
+        internal DList.Cell? E1;                // closing cell in Q1 (only while the node has children)
+        internal DList.Cell? E2;                // closing cell in Q2 (likewise)
 
         /// <summary>The parent node; null for the root.</summary>
         public DNode? Parent => Up == null || Up.Owner == null ? null : Up;
 
-        /// <summary>The children in insertion order (a copy).</summary>
+        /// <summary>The children in Q1 order (a copy).</summary>
         public IReadOnlyList<DNode> Children => Kids == null ? Array.Empty<DNode>() : Kids.ToArray();
 
         /// <summary>False once the node has been deleted from its tree.</summary>
         public bool IsInTree => Owner != null;
 
         public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// Read-only view of Q1 or Q2: the nodes in list order, with the list-level checks of DList
+    /// (IsLeftOf, Index, Next, ...). Closing cells are not shown. Live: it always reflects the
+    /// current tree, which changes only through DTree methods.
+    /// </summary>
+    public sealed class Projection : IEnumerable<string> {
+        private readonly DList _list;
+
+        internal Projection(DList list) { _list = list; }
+
+        public string Name => _list.Name;
+        public string Source => Marker.Source;
+        public string Sink => Marker.Sink;
+
+        /// <summary>Number of nodes, without the markers.</summary>
+        public int Count => _list.Count;
+
+        /// <summary>How often a region of the list was renumbered.</summary>
+        public long RenumberCount => _list.RenumberCount;
+
+        /// <summary>How many positions renumbering changed in total (closing cells included).</summary>
+        public long RenumberMoved => _list.RenumberMoved;
+
+        public bool Contains(string name) => _list.Contains(name);
+        public bool IsAllocated(string name) => _list.IsAllocated(name);
+        public bool IsNotAllocated(string name) => _list.IsNotAllocated(name);
+
+        /// <summary>Position of name as (Num, Den); SOURCE/SINK have Den 0. Null if absent.</summary>
+        public (long Num, long Den)? Index(string name) => _list.Index(name);
+
+        /// <summary>Position of name as a double (for display; comparisons use exact arithmetic).</summary>
+        public double IndexValue(string name) => _list.IndexValue(name);
+
+        public string? Next(string name) => _list.Next(name);
+        public string? Prev(string name) => _list.Prev(name);
+        public bool IsLeftOf(string v, string u) => _list.IsLeftOf(v, u);
+        public bool IsSelfOrLeftOf(string v, string u) => _list.IsSelfOrLeftOf(v, u);
+        public bool IsRightOf(string v, string u) => _list.IsRightOf(v, u);
+        public bool IsSelfOrRightOf(string v, string u) => _list.IsSelfOrRightOf(v, u);
+        public bool Precedes(string u, string v) => _list.Precedes(u, v);
+
+        /// <summary>True if both hold the same nodes in the same order.</summary>
+        public bool IsSameAs(IEnumerable<string> other) => this.SequenceEqual(other);
+
+        public IEnumerator<string> GetEnumerator() => _list.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public List<string> ToList(bool withMarkers = false) => _list.ToList(withMarkers);
+
+        public override string ToString() => _list.ToString();
+
+        /// <summary>For tests: true if positions strictly increase from SOURCE to SINK (closing cells included).</summary>
+        public bool PositionsStrictlyIncrease() => _list.PositionsStrictlyIncrease();
+
+        /// <summary>For tests: the largest denominator in use (closing cells included).</summary>
+        public long MaxDenominator() => _list.MaxDenominator();
     }
 
     /// <summary>
@@ -41,6 +101,15 @@ namespace DirectedTrees {
     /// with siblings right to left. Node u reaches node v if and only if u strictly precedes v
     /// in both Q1 and Q2 (irreflexive: no node reaches itself). A new child is the last child of
     /// its parent in Q1 and the first in Q2, so every change is local to both lists.
+    /// A node with children also has a closing cell in each list, an unnamed cell directly after
+    /// the last cell of its subtree (the parent's delimiter of the paper): the subtree is the block
+    /// from the node to its closing cell, so the end of a block is known without any search.
+    /// Every operation checks its arguments before it changes anything, so an operation that
+    /// throws leaves the tree as it was.
+    /// With strict set, queries about nodes (CanReach, CanNotReach, IsAncestor, IsDescendant,
+    /// IsRoot and the queries of constructed nodes) throw for a name that is not in the tree
+    /// (KeyNotFoundException) or a handle of a removed node (ArgumentException) instead of
+    /// answering false; Contains and SameSubtree are membership tests and never throw.
     /// Every method is available with node names and, for speed, with <see cref="DNode"/>
     /// handles, which refer to their positions directly (the idea of using addresses as ids is
     /// Enis Olgac's, from his original implementation).
@@ -55,35 +124,45 @@ namespace DirectedTrees {
         private readonly List<string> _edgeLog = new();
         internal int Reshapes;                  // counts deletions and moves; insertions keep the order of existing nodes
 
-        public DTree(string treeId = "P1") {
+        public DTree(string treeId = "P1", bool strict = false) {
             TreeId = treeId;
+            Strict = strict;
             _q1 = new DList(treeId + ".Q1");
             _q2 = new DList(treeId + ".Q2");
+            Q1 = new Projection(_q1);
+            Q2 = new Projection(_q2);
             _source = new DNode(Marker.Source, null) { C1 = _q1.FirstCell, C2 = _q2.FirstCell };
         }
 
         public string TreeId { get; }
+
+        /// <summary>Whether queries throw for unknown nodes instead of answering false (set at construction).</summary>
+        public bool Strict { get; }
 
         // -- construction -----------------------------------------------------------
 
         /// <summary>
         /// Read the format used by the .csx examples: "parent: child1; child2" adds last children,
         /// "sibling > child1; child2" inserts siblings directly after sibling (in that order),
-        /// "sibling &lt; child1; child2" directly before it.
+        /// "sibling &lt; child1; child2" directly before it. Empty lines and lines starting with
+        /// '#', "--" or "**" are skipped, "@@" ends the description; any other line without ':',
+        /// '>' or '&lt;' throws ArgumentException.
         /// </summary>
-        public static DTree FromFile(string path, string? treeId = null) {
-            var tree = new DTree(treeId ?? System.IO.Path.GetFileNameWithoutExtension(path));
+        public static DTree FromFile(string path, string? treeId = null, bool strict = false) {
+            var tree = new DTree(treeId ?? System.IO.Path.GetFileNameWithoutExtension(path), strict);
             foreach (var raw in File.ReadLines(path)) {
-                var line = raw.Trim().TrimStart('\uFEFF');
+                var line = raw.Trim().TrimStart('﻿');
                 if (line.Length == 0 || line.StartsWith('#') || line.StartsWith("--") || line.StartsWith("**")) continue;
                 if (line.StartsWith("@@")) break;
-                if (line.IndexOfAny(new[] { ':', '>', '<' }) < 0) continue;
                 tree.AddLine(line);
             }
             return tree;
         }
 
-        /// <summary>Apply one line of the description format (see FromFile); returns the new handles.</summary>
+        /// <summary>
+        /// Apply one line of the description format (see FromFile); returns the new handles. The
+        /// children are added one by one; if one of them is rejected, those before it remain.
+        /// </summary>
         public List<DNode> AddLine(string line) {
             int at = line.IndexOfAny(new[] { ':', '>', '<' });
             if (at < 0) throw new ArgumentException($"no ':', '>' or '<' in '{line}'");
@@ -100,35 +179,42 @@ namespace DirectedTrees {
             return added;
         }
 
+        private static void CheckName(string? name, string paramName) {
+            if (name == null) throw new ArgumentNullException(paramName, "a node name must not be null");
+            if (name.Length == 0) throw new ArgumentException("a node name must not be empty", paramName);
+            if (IsMarker(name)) throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes", paramName);
+        }
+
         /// <summary>
         /// Add the edge parent -> child and return the child's handle. The first call makes parent
         /// the root; afterwards parent must already exist and child must not.
         /// </summary>
         public DNode Insert(string parent, string child) {
-            if (IsMarker(parent) || IsMarker(child))
-                throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
+            CheckName(child, nameof(child));
+            DNode p;
             if (_nodes.Count == 0) {
+                CheckName(parent, nameof(parent));
                 if (parent == child) throw new ArgumentException($"child '{child}' is already in the tree");
-                Attach(_source, NewNode(parent));
+                p = MakeRoot(parent);
+            } else {
+                p = Require(parent);
             }
-            if (!_nodes.TryGetValue(parent, out var p))
-                throw new KeyNotFoundException($"parent '{parent}' is not in the tree");
             return InsertUnder(p, child);
         }
 
         /// <summary>Add a child under an existing node handle and return the child's handle.</summary>
         public DNode Insert(DNode parent, string child) {
             Own(parent);
-            if (IsMarker(child)) throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
+            CheckName(child, nameof(child));
             return InsertUnder(parent, child);
         }
 
-        private DNode InsertUnder(DNode parent, string child) {
+        private DNode InsertUnder(DNode p, string child) {
             if (_nodes.ContainsKey(child)) throw new ArgumentException($"child '{child}' is already in the tree");
-            var c = NewNode(child);
-            Attach(parent, c);
-            _edgeLog.Add($"({parent.Name}, {child})");
-            return c;
+            Open(p);
+            var n = Link(child, p, null, p.E1!.Prev!, p.C2);       // Q1 before p's closing cell, Q2 after p
+            _edgeLog.Add($"({p.Name}, {child})");
+            return n;
         }
 
         /// <summary>
@@ -142,9 +228,7 @@ namespace DirectedTrees {
             var s = CheckSibling(sibling, child);
             var p = s.Up!;
             int i = p.Kids!.IndexOf(s);
-            var w = LastInQ1(s);
-            var n = Link(child, p, i + 1, w.C1, s.C2.Prev!);
-            if (i + 1 == p.Kids.Count - 1) p.Last = n;              // n is now the last node of p's subtree
+            var n = Link(child, p, i + 1, End1(s), s.C2.Prev!);
             _edgeLog.Add($"({s.Name} > {child})");
             return n;
         }
@@ -152,8 +236,7 @@ namespace DirectedTrees {
         /// <summary>
         /// Insert child as a sibling directly before sibling (same parent) and return its handle. In Q1
         /// it goes directly before the sibling, in Q2 after the end of the sibling's subtree there
-        /// (directly before the previous sibling; for a first child, after the end of the parent's
-        /// subtree in Q2, found by following first children); no other node moves.
+        /// (its closing cell); no other node moves.
         /// </summary>
         public DNode InsertBefore(string sibling, string child) => InsertBefore(Require(sibling), child);
 
@@ -161,111 +244,97 @@ namespace DirectedTrees {
             var s = CheckSibling(sibling, child);
             var p = s.Up!;
             int i = p.Kids!.IndexOf(s);
-            var q2After = i > 0 ? p.Kids[i - 1].C2.Prev! : LastInQ2(s).C2;
-            var n = Link(child, p, i, s.C1.Prev!, q2After);
+            var n = Link(child, p, i, s.C1.Prev!, End2(s));
             _edgeLog.Add($"({s.Name} < {child})");
             return n;
         }
 
         private DNode CheckSibling(DNode sibling, string child) {
             Own(sibling);
-            if (IsMarker(child)) throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
+            CheckName(child, nameof(child));
             if (sibling.Up == _source) throw new InvalidOperationException("the root has no siblings");
             if (_nodes.ContainsKey(child)) throw new ArgumentException($"child '{child}' is already in the tree");
             return sibling;
         }
 
-        /// <summary>Create a child of p at position index among p's children, linked after the given cells.</summary>
-        private DNode Link(string name, DNode p, int index, DList.Cell q1After, DList.Cell q2After) {
-            var n = NewNode(name);
-            n.C2 = _q2.InsertNewAfter(name, q2After);
-            n.C1 = _q1.InsertNewAfter(name, q1After);
+        private DNode MakeRoot(string name) {
+            var n = new DNode(name, this) {
+                C1 = _q1.InsertNewAfter(name, _q1.FirstCell),
+                C2 = _q2.InsertNewAfter(name, _q2.FirstCell),
+                Up = _source,
+            };
             n.C1.Node = n.C2.Node = n;
-            n.Up = p;
-            p.Kids!.Insert(index, n);
+            _source.Kids = new List<DNode> { n };
+            _nodes[name] = n;
+            return n;
+        }
+
+        /// <summary>
+        /// Create a child of p at position index among p's children (null: last), linked after the
+        /// given cells. All checks are done; the name is registered last.
+        /// </summary>
+        private DNode Link(string name, DNode p, int? index, DList.Cell q1After, DList.Cell q2After) {
+            var n = new DNode(name, this) {
+                C1 = _q1.InsertNewAfter(name, q1After),
+                C2 = _q2.InsertNewAfter(name, q2After),
+                Up = p,
+            };
+            n.C1.Node = n.C2.Node = n;
+            var kids = p.Kids ??= new List<DNode>();
+            if (index is int i) kids.Insert(i, n); else kids.Add(n);
+            _nodes[name] = n;
             return n;
         }
 
         private static bool IsMarker(string v) => v == Marker.Source || v == Marker.Sink;
 
-        private DNode NewNode(string name) {
-            var n = new DNode(name, this);
-            _nodes[name] = n;
-            return n;
+        // -- closing cells -----------------------------------------------------------
+
+        /// <summary>Give p its closing cells if it has none: directly after p, as its block is p alone.</summary>
+        private void Open(DNode p) {
+            if (p.E1 != null) return;
+            p.E1 = _q1.InsertNewAfter(null, p.C1);
+            p.E2 = _q2.InsertNewAfter(null, p.C2);
+            p.E1.Node = p.E2.Node = p;
         }
 
-        private void Attach(DNode parent, DNode child) {
-            var last = LastInQ1(parent);
-            child.C2 = _q2.InsertNewAfter(child.Name, parent.C2);   // first child in Q2
-            child.C1 = _q1.InsertNewAfter(child.Name, last.C1);     // last child in Q1
-            child.C1.Node = child.C2.Node = child;
-            child.Up = parent;
-            (parent.Kids ??= new List<DNode>()).Add(child);
-            parent.Last = child;                                    // child is now the last node of parent's subtree
+        /// <summary>Remove p's closing cells once p has no children left.</summary>
+        private void Close(DNode p) {
+            if (p.E1 == null) return;
+            _q1.RemoveCell(p.E1);
+            _q2.RemoveCell(p.E2!);
+            p.E1 = p.E2 = null;
         }
 
-        // -- the end of a subtree --------------------------------------------------
-
-        internal static int Budget = 8;  // steps of the plain walk before the validated hint is used (tests may set 0)
-
-        /// <summary>x is p or lies in p's subtree.</summary>
-        private static bool InSubtree(DNode p, DNode x) =>
-            x == p || (DList.Less(p.C1, x.C1) && DList.Less(p.C2, x.C2));
-
-        /// <summary>x is the last node of p's subtree in Q1: x lies in it and x's Q1 successor does not.</summary>
-        private bool IsLast(DNode p, DNode? x) {
-            if (x == null || x.Owner != this || !InSubtree(p, x)) return false;
-            var next = x.C1.Next!;
-            return next.Den == 0 || !InSubtree(p, (DNode)next.Node!);
-        }
-
-        /// <summary>
-        /// Last node of p's subtree in Q1. A short walk down the last children finds it on ordinary
-        /// trees; beyond the budget, the end remembered last time (p.Last) is used if it validates in
-        /// O(1); otherwise the walk continues, stops at a node whose own hint validates, and every node
-        /// passed gets the found end as its new hint (path compression). Stale hints are never used,
-        /// so ancestors' hints need no update when a subtree grows.
-        /// </summary>
-        private DNode LastInQ1(DNode p) {
-            var w = p;
-            for (int k = 0; k < Budget && w.Kids is { Count: > 0 } kids; k++) w = kids[^1];
-            if (w.Kids is not { Count: > 0 }) return w;
-            if (IsLast(p, p.Last)) return p.Last!;
-            var path = new List<DNode> { p };
-            w = p;
-            while (w.Kids is { Count: > 0 } kids) {
-                w = kids[^1];
-                if (IsLast(w, w.Last)) { w = w.Last!; break; }
-                path.Add(w);
-            }
-            foreach (var v in path) v.Last = w;
-            return w;
-        }
-
-        /// <summary>Last node of u's subtree in Q2 (siblings reversed): follow first children.</summary>
-        private static DNode LastInQ2(DNode u) {
-            var w = u;
-            while (w.Kids is { Count: > 0 } kids) w = kids[0];
-            return w;
-        }
+        private static DList.Cell End1(DNode n) => n.E1 ?? n.C1;
+        private static DList.Cell End2(DNode n) => n.E2 ?? n.C2;
 
         /// <summary>
         /// The node after node in Q1, or null after the last node. Q1 is the display order of a tree
-        /// view (parents before children, siblings in insertion order).
+        /// view (parents before children, siblings in insertion order). Passes over the closing cells
+        /// of the subtrees that end after node: O(1) amortized over a walk through Q1.
         /// </summary>
         public string? NextInQ1(string node) => NextInQ1(Require(node))?.Name;
 
         public DNode? NextInQ1(DNode node) {
             Own(node);
-            return node.C1.Next?.Node as DNode;
+            var c = node.C1.Next!;
+            while (c.Name == null) c = c.Next!;
+            return c.Node as DNode;                                 // null for SINK
         }
 
-        /// <summary>Last node of the subtree of node in Q1 (the subtree is the block from node to it). Usually O(1) when asked again.</summary>
-        public string SubtreeLast(string node) => LastInQ1(Require(node)).Name;
+        /// <summary>
+        /// Last node of the subtree of node in Q1 (the subtree is the block from node to it). Goes
+        /// back from the closing cell of node over the closing cells that precede it: O(length of the
+        /// path of last children below node).
+        /// </summary>
+        public string SubtreeLast(string node) => SubtreeLast(Require(node)).Name;
 
         public DNode SubtreeLast(DNode node) {
             Own(node);
-            return LastInQ1(node);
+            var c = End1(node);
+            while (c.Name == null) c = c.Prev!;
+            return (DNode)c.Node!;
         }
 
         // -- structural reconfiguration -------------------------------------------
@@ -286,6 +355,11 @@ namespace DirectedTrees {
             }
             _q1.RemoveCell(node.C1);
             _q2.RemoveCell(node.C2);
+            Close(node);
+            if (siblings.Count == 0) {
+                parent.Kids = null;
+                Close(parent);
+            }
             Forget(node);
         }
 
@@ -295,17 +369,23 @@ namespace DirectedTrees {
         public List<string> DeleteSubtree(DNode node) {
             Own(node);
             if (node.Up == _source) throw new InvalidOperationException("the root cannot be deleted");
-            var removed = SubtreeNodes(node);
-            _q1.CutBlockCells(node.C1, LastInQ1(node).C1);
-            _q2.CutBlockCells(node.C2, LastInQ2(node).C2);
-            node.Up!.Kids!.Remove(node);
+            var cells = _q1.CutBlockCells(node.C1, End1(node));
+            _q2.CutBlockCells(node.C2, End2(node));
+            var removed = new List<DNode>();
+            foreach (var c in cells) if (c.Name != null) removed.Add((DNode)c.Node!);
+            var parent = node.Up!;
+            parent.Kids!.Remove(node);
+            if (parent.Kids.Count == 0) {
+                parent.Kids = null;
+                Close(parent);
+            }
             foreach (var n in removed) Forget(n);
             return removed.Select(n => n.Name).ToList();
         }
 
         /// <summary>
         /// Detach the subtree rooted at subtreeRoot and attach it as the last child of newParent.
-        /// newParent must not lie inside the moved subtree; the root cannot be moved.
+        /// newParent must not lie inside the moved subtree; the root cannot be moved. Handles stay valid.
         /// </summary>
         public void CutNPaste(string subtreeRoot, string newParent) => CutNPaste(Require(subtreeRoot), Require(newParent));
 
@@ -314,22 +394,23 @@ namespace DirectedTrees {
             Own(newParent);
             var u = subtreeRoot;
             if (u.Up == _source) throw new InvalidOperationException("the root cannot be moved");
-            if (newParent == u || CanReach(u, newParent))
+            if (newParent == u || Reaches(u, newParent))
                 throw new InvalidOperationException("newParent lies inside the subtree being moved");
-            var uLast = LastInQ1(u);
-            var block1 = _q1.CutBlockCells(u.C1, uLast.C1);
-            var block2 = _q2.CutBlockCells(u.C2, LastInQ2(u).C2);
-            foreach (var c in block1) ((DNode)c.Node!).Owner = null;     // detached for a moment: hints into the block are not valid
-            u.Up!.Kids!.Remove(u);
-            // Same placement rule as Insert: Q2 right after the parent,
-            // Q1 right after the current last node of the parent's subtree.
-            var last = LastInQ1(newParent);
+            var block1 = _q1.CutBlockCells(u.C1, End1(u));
+            var block2 = _q2.CutBlockCells(u.C2, End2(u));
+            var old = u.Up!;
+            old.Kids!.Remove(u);
+            if (old.Kids.Count == 0) {
+                old.Kids = null;
+                Close(old);
+            }
+            // Same placement rule as Insert: Q2 directly after the parent,
+            // Q1 directly before the parent's closing cell.
+            Open(newParent);
             _q2.PasteCellsAfter(block2, newParent.C2);
-            _q1.PasteCellsAfter(block1, last.C1);
-            foreach (var c in block1) ((DNode)c.Node!).Owner = this;
+            _q1.PasteCellsAfter(block1, newParent.E1!.Prev!);
             u.Up = newParent;
             (newParent.Kids ??= new List<DNode>()).Add(u);
-            newParent.Last = uLast;
             Reshapes++;
         }
 
@@ -339,7 +420,7 @@ namespace DirectedTrees {
             Reshapes++;
             n.Up = null;
             n.Kids = null;
-            n.Last = null;
+            n.E1 = n.E2 = null;
         }
 
         // -- accessors -------------------------------------------------------------
@@ -349,13 +430,17 @@ namespace DirectedTrees {
         public string Source => Marker.Source;
         public string Sink => Marker.Sink;
 
-        /// <summary>The Q1 projection itself, for list-level checks. Read it; change the tree only through DTree.</summary>
-        public DList Q1 => _q1;
+        /// <summary>Read-only view of the Q1 projection, for list-level checks (IsLeftOf, Index, ...).</summary>
+        public Projection Q1 { get; }
 
-        /// <summary>The Q2 projection itself, for list-level checks. Read it; change the tree only through DTree.</summary>
-        public DList Q2 => _q2;
+        /// <summary>Read-only view of the Q2 projection, as Q1.</summary>
+        public Projection Q2 { get; }
 
         public int Size => _nodes.Count;
+
+        /// <summary>For tests: the lists themselves, closing cells included.</summary>
+        internal DList List1 => _q1;
+        internal DList List2 => _q2;
         public List<string> Nodes => _q1.ToList();
         public string EdgeLog => string.Join("\n", _edgeLog);
 
@@ -422,30 +507,39 @@ namespace DirectedTrees {
 
         // -- queries ---------------------------------------------------------------
 
-        public bool Contains(string node) => _nodes.ContainsKey(node);
+        public bool Contains(string node) => node != null && _nodes.ContainsKey(node);
 
         /// <summary>Parent of node; null for the root. Throws if node is absent.</summary>
         public string? GetParent(string node) => Require(node).Parent?.Name;
 
+        /// <summary>The children of node, in Q1 order.</summary>
         public List<string> Children(string node) {
             var n = Require(node);
             return n.Kids == null ? new List<string>() : n.Kids.Select(c => c.Name).ToList();
         }
 
-        /// <summary>True if there is a directed path of length at least 1 from u to v (irreflexive).</summary>
-        public bool CanReach(string u, string v) =>
-            _nodes.TryGetValue(u, out var a) && _nodes.TryGetValue(v, out var b) && Reaches(a, b);
+        /// <summary>
+        /// True if there is a directed path of length at least 1 from u to v (irreflexive). A name
+        /// not in the tree reaches nothing and is reached by nothing; with Strict it throws instead.
+        /// </summary>
+        public bool CanReach(string u, string v) {
+            var a = Lookup(u);
+            if (a == null) return false;
+            var b = Lookup(v);
+            return b != null && Reaches(a, b);
+        }
 
-        /// <summary>Reachability on handles: two position comparisons, no lookup. False for removed nodes.</summary>
-        public bool CanReach(DNode u, DNode v) => u.Owner == this && v.Owner == this && Reaches(u, v);
+        /// <summary>Reachability on handles: two position comparisons, no lookup. False for removed nodes (Strict: throws).</summary>
+        public bool CanReach(DNode u, DNode v) => Live(u) && Live(v) && Reaches(u, v);
 
         internal static bool Reaches(DNode u, DNode v) => DList.Less(u.C1, v.C1) && DList.Less(u.C2, v.C2);
 
         public bool CanNotReach(string u, string v) => !CanReach(u, v);
         public bool CanNotReach(DNode u, DNode v) => !CanReach(u, v);
 
-        public bool IsRoot(string node) => node == Root;
-        public bool IsRoot(DNode node) => node.Owner == this && node.Up == _source;
+        /// <summary>True if node is the root; false for null or a name not in the tree (Strict: throws).</summary>
+        public bool IsRoot(string? node) => Lookup(node) is DNode n && n.Up == _source;
+        public bool IsRoot(DNode node) => Live(node) && node.Up == _source;
 
         public bool IsLeaf(string node) => IsLeaf(Require(node));
         public bool IsLeaf(DNode node) {
@@ -467,12 +561,12 @@ namespace DirectedTrees {
         /// <summary>Nodes of the subtree rooted at node, in Q1 order.</summary>
         public List<string> Subtree(string node) => SubtreeNodes(Require(node)).Select(n => n.Name).ToList();
 
-        private List<DNode> SubtreeNodes(DNode node) {
-            var result = new List<DNode>();
-            var end = LastInQ1(node).C1;
-            for (var c = node.C1; ; c = c.Next!) {
-                result.Add(_nodes[c.Name]);
-                if (c == end) break;
+        private static List<DNode> SubtreeNodes(DNode node) {
+            var result = new List<DNode> { node };
+            var end = End1(node);
+            for (var c = node.C1; c != end; ) {
+                c = c.Next!;
+                if (c.Name != null) result.Add((DNode)c.Node!);
             }
             return result;
         }
@@ -517,8 +611,24 @@ namespace DirectedTrees {
             return d;
         }
 
-        private DNode Require(string node) =>
-            _nodes.TryGetValue(node, out var n) ? n : throw new KeyNotFoundException($"node '{node}' is not in the tree");
+        private DNode Require(string node) {
+            ArgumentNullException.ThrowIfNull(node);
+            return _nodes.TryGetValue(node, out var n) ? n : throw new KeyNotFoundException($"node '{node}' is not in the tree");
+        }
+
+        /// <summary>The node of this name for a query: null if absent (Strict: KeyNotFoundException).</summary>
+        internal DNode? Lookup(string? node) {
+            if (node != null && _nodes.TryGetValue(node, out var n)) return n;
+            if (Strict) throw new KeyNotFoundException($"node '{node ?? "null"}' is not in the tree");
+            return null;
+        }
+
+        /// <summary>True if the handle belongs to this tree; false otherwise (Strict: ArgumentException).</summary>
+        internal bool Live(DNode node) {
+            if (node.Owner == this) return true;
+            if (Strict) throw new ArgumentException($"node '{node.Name}' does not belong to this tree");
+            return false;
+        }
 
         internal void Own(DNode node) {
             if (node.Owner != this) throw new ArgumentException($"node '{node.Name}' does not belong to this tree");

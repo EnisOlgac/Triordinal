@@ -29,7 +29,7 @@ With more queries per change, the crossover moves towards shallow trees. With te
 
 A parent link knows nothing about what lies below a node or beside it. Questions of that kind are top-down or about order, and the walk cannot answer them at all; a program has to add structure (child lists, sibling links, traversal numbers) and pay for it:
 
-- **Subtrees.** What lies under *u*, how large is it, where does it end? With child lists this costs the size of the subtree; `DTree` finds the end of a subtree with `subtree_last`, usually in O(1).
+- **Subtrees.** What lies under *u*, how large is it, where does it end? With child lists this costs the size of the subtree; `DTree` marks the end of every subtree with a closing cell, so it never searches for it; `subtree_last` steps back from that cell to the last node.
 - **Order.** Which of two nodes comes first in the display order, and which rows follow a given row in a tree view? `DTree`'s Q1 is the display order.
 - **"Reaches some" over a set.** Whether *u* reaches some member of *S* has no bottom-up answer except climbing from every member, O(*k* · depth); `DTree` answers it in O(log *k*) (see [and/or queries on the topology](and-or-queries.md)).
 - **Static numbers do not help under changes.** Pre/post numbers from a traversal answer ancestor questions in O(1) and give the order, but each insertion invalidates them; recomputing them makes *n* insertions cost O(*n*²).

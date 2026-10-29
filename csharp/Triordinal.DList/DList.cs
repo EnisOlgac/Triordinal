@@ -23,6 +23,9 @@ namespace Triordinal {
     /// (deletions never shrink them), so a region is also renumbered when a numerator would
     /// exceed 2^61. Every mediant is then the sum of two numerators below 2^61 and cannot
     /// overflow, and a cell is linked only after its position has been computed.
+    /// A list may also hold unnamed cells: they have a position like any other cell but no name,
+    /// so enumeration, Next/Prev and all lookups by name pass over them. DTree uses them as the
+    /// closing cell of each node with children, which marks the end of its subtree.
     /// </remarks>
     public sealed class DList : IEnumerable<string> {
         private const long Q = 1L << 20;        // denominator used when a region is renumbered
@@ -32,13 +35,13 @@ namespace Triordinal {
         private const double Growth = 2.0;      // each doubling of the region raises the spacing
 
         internal sealed class Cell {
-            internal readonly string Name;
+            internal readonly string? Name;    // null for an unnamed cell
             internal Cell? Prev;
             internal Cell? Next;
             internal long Num;
             internal long Den = 1;
             internal object? Node;              // the node owning this cell (a DTree or DGraph node handle)
-            internal Cell(string name) { Name = name; }
+            internal Cell(string? name) { Name = name; }
         }
 
         private readonly Dictionary<string, Cell> _cells = new();
@@ -66,8 +69,8 @@ namespace Triordinal {
         /// <summary>Number of nodes, without the markers.</summary>
         public int Count => _cells.Count - 2;
 
-        public string Source => _first.Name;
-        public string Sink => _last.Name;
+        public string Source => _first.Name!;
+        public string Sink => _last.Name!;
 
         // -- internals ---------------------------------------------------------
 
@@ -199,17 +202,22 @@ namespace Triordinal {
             return Lt(x, y);
         }
 
-        /// <summary>Create a cell for a new name directly after anchor.</summary>
-        internal Cell InsertNewAfter(string name, Cell anchor) {
-            if (_cells.ContainsKey(name)) throw new ArgumentException($"'{name}' is already in {Name}");
-            var cell = New(name);
+        /// <summary>
+        /// Create a cell for a new name directly after anchor; a null name makes an unnamed cell.
+        /// The position is computed while linking; the name is registered only afterwards.
+        /// </summary>
+        internal Cell InsertNewAfter(string? name, Cell anchor) {
+            if (name != null && _cells.ContainsKey(name)) throw new ArgumentException($"'{name}' is already in {Name}");
+            if (anchor == _last) throw new ArgumentException("nothing can follow SINK");
+            var cell = new Cell(name);
             LinkAfter(cell, anchor);
+            if (name != null) _cells[name] = cell;
             return cell;
         }
 
         internal void RemoveCell(Cell cell) {
             Unlink(cell);
-            _cells.Remove(cell.Name);
+            if (cell.Name != null) _cells.Remove(cell.Name);
         }
 
         /// <summary>Remove the contiguous block a..b and return its cells in order.</summary>
@@ -223,14 +231,14 @@ namespace Triordinal {
             b.Next!.Prev = a.Prev;
             a.Prev = null;
             b.Next = null;
-            foreach (var c in cells) _cells.Remove(c.Name);
+            foreach (var c in cells) if (c.Name != null) _cells.Remove(c.Name);
             return cells;
         }
 
         /// <summary>Re-insert cut cells in order directly after anchor (new positions are assigned).</summary>
         internal void PasteCellsAfter(List<Cell> cells, Cell anchor) {
             foreach (var c in cells) {
-                _cells[c.Name] = c;
+                if (c.Name != null) _cells[c.Name] = c;
                 LinkAfter(c, anchor);
                 anchor = c;
             }
@@ -253,8 +261,19 @@ namespace Triordinal {
             return (double)c.Num / c.Den;
         }
 
-        public string? Next(string name) => Get(name).Next?.Name;
-        public string? Prev(string name) => Get(name).Prev?.Name;
+        /// <summary>Name of the next named cell (SINK after the last one), null after SINK.</summary>
+        public string? Next(string name) {
+            var c = Get(name).Next;
+            while (c != null && c.Name == null) c = c.Next;
+            return c?.Name;
+        }
+
+        /// <summary>Name of the previous named cell (SOURCE before the first one), null before SOURCE.</summary>
+        public string? Prev(string name) {
+            var c = Get(name).Prev;
+            while (c != null && c.Name == null) c = c.Prev;
+            return c?.Name;
+        }
 
         public bool IsLeftOf(string v, string u) => Lt(Get(v), Get(u));
         public bool IsSelfOrLeftOf(string v, string u) => v == u || Lt(Get(v), Get(u));
@@ -300,17 +319,17 @@ namespace Triordinal {
             _cells.Remove(name);
         }
 
-        /// <summary>Remove the contiguous block first..last and return its names in order.</summary>
+        /// <summary>
+        /// Remove the contiguous block first..last and return its names in order (unnamed cells
+        /// inside the block are removed as well).
+        /// </summary>
         public List<string> CutBlock(string first, string last) {
             Cell a = Get(first), b = Get(last);
+            if (a == _first || a == _last || b == _first || b == _last)
+                throw new InvalidOperationException("markers cannot be removed");
             var names = new List<string>();
-            for (var cell = a; ; cell = cell.Next!) {
-                names.Add(cell.Name);
-                if (cell == b) break;
-            }
-            a.Prev!.Next = b.Next;
-            b.Next!.Prev = a.Prev;
-            foreach (var n in names) _cells.Remove(n);
+            foreach (var c in CutBlockCells(a, b))
+                if (c.Name != null) names.Add(c.Name);
             return names;
         }
 
@@ -325,7 +344,8 @@ namespace Triordinal {
         public bool IsSameAs(DList other) => this.SequenceEqual(other);
 
         public IEnumerator<string> GetEnumerator() {
-            for (var c = _first.Next!; c != _last; c = c.Next!) yield return c.Name;
+            for (var c = _first.Next!; c != _last; c = c.Next!)
+                if (c.Name != null) yield return c.Name;
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -347,7 +367,11 @@ namespace Triordinal {
             return true;
         }
 
-        /// <summary>For tests: the largest denominator in use.</summary>
-        public long MaxDenominator() => _cells.Values.Max(c => c.Den);
+        /// <summary>For tests: the largest denominator in use (unnamed cells included).</summary>
+        public long MaxDenominator() {
+            long max = 0;
+            for (Cell? c = _first; c != null; c = c.Next) max = Math.Max(max, c.Den);
+            return max;
+        }
     }
 }

@@ -8,11 +8,14 @@ The `DTree` class represents a symbolic directed tree with a unique root and int
 
 ## Constructor
 
-### `DTree(string id)`
+### `DTree(string id, bool strict = false)`
 Create a new tree with a given identifier.
 - Initializes a new directed tree with the given identifier.
 - The root is determined implicitly as the source of the first inserted edge.
 - Q1 and Q2 projections are initialized automatically.
+- `strict`: queries about nodes (`CanReach`, `CanNotReach`, `IsAncestor`, `IsDescendant`, `IsRoot` and the queries of constructed nodes) throw for a name that is not in the tree (`KeyNotFoundException`) or a handle of a removed node (`ArgumentException`) instead of answering `false`. `Contains` and `SameSubtree` are membership tests and never throw. Python: `DTree(tree_id="P1", strict=False)`, raising `KeyError` in both cases.
+
+Every operation checks its arguments before it changes anything, so an operation that throws leaves the tree as it was. Node names are non-empty strings other than the markers `[` and `]`.
 
 ## Core Methods
 
@@ -22,7 +25,7 @@ Insert a new edge into the tree.
 - The `parent` must already exist in the tree.
 - The `child` must not already exist.
 - Updates Q1 and Q2 projections accordingly.
-- The new node becomes the **last** child of `parent`.
+- The new node becomes the **last** child of `parent`: in Q1 directly before the closing cell of `parent`, in Q2 directly after `parent`. O(1).
 
 ### `DNode InsertAfter(string sibling, string child)` / `DNode InsertBefore(string sibling, string child)`
 Insert a new node as a sibling of an existing one, with the same parent.
@@ -37,7 +40,11 @@ Apply one line of the description format used by the `.csx` files and `FromFile`
 - `p: c1; c2`: `c1` and `c2` become last children of `p`.
 - `s > c1; c2`: `c1` goes directly after `s`, then `c2` directly after `c1`.
 - `s < c1; c2`: `c1` and `c2` go directly before `s`, in that order.
+- The children are added one by one; if one is rejected, those before it remain.
 - Python: `add_line(line)`.
+
+### `static DTree FromFile(string path, string? treeId = null, bool strict = false)`
+Read a description file line by line with `AddLine`. Empty lines and lines starting with `#`, `--` or `**` are skipped, `@@` ends the description; any other line without `:`, `>` or `<` throws `ArgumentException` (Python: `ValueError`). Python: `DTree.from_file(path, tree_id=None, strict=False)`.
 
 ### `bool Contains(string node)`
 Check if a node exists.
@@ -68,15 +75,19 @@ Remove a node and reattach its children, if any, to its parent.
 
 ## Accessors
 
-### `DList Q1`
+### `Projection Q1`
 Return the Q1 projection.
-- Returns a copy of the Q1 projection (left-to-right traversal).
-- The projection reflects the current visible tree state.
+- A read-only, live view of Q1 (left-to-right traversal): the nodes in list order, with the list-level checks `IsLeftOf`, `IsRightOf`, `Precedes`, `Index`, `IndexValue`, `Next`, `Prev`, `Contains`, `IsSameAs`, `ToList`, `Count`, `RenumberCount`, `RenumberMoved`. It has no methods that change the list; the tree changes only through `DTree` methods.
+- Closing cells are not shown: `Next` and `Prev` pass over them.
+- Python: `t.Q1`; `t.q1` is a plain list of names.
 
-### `DList Q2`
+### `Projection Q2`
 Return the Q2 projection.
-- Returns a copy of the Q2 projection (right-to-left traversal).
+- A read-only, live view of Q2 (right-to-left traversal), as `Q1`.
 - Q2 is the sibling-reversed counterpart of Q1.
+
+### Closing cells
+A node with children has a closing cell in each list, an unnamed cell directly after the last cell of its subtree; it is created with the node's first child and removed with its last one. The subtree of a node is the block from the node to its closing cell, in Q1 and in Q2, so the end of a block is known without a search. Closing cells take positions like nodes but are never compared with them; reachability compares node cells only.
 
 ### `string Source`
 Return the symbolic source node.
@@ -98,6 +109,7 @@ Return the symbolic sink node.
 Check if one node can reach another.
 - Returns `true` if there is a directed path from node `u` to node `v`.
 - The check is structural and respects tree hierarchy.
+- A name not in the tree, or a handle of a removed node, reaches nothing and is reached by nothing (`false`); with `strict`, it throws instead.
 
 #### `bool CanNotReach(string u, string v)`
 Check if one node cannot reach another.
@@ -107,15 +119,15 @@ Check if one node cannot reach another.
 ### Ancestry and Structure
 
 #### `string? NextInQ1(string node)` / `DNode? NextInQ1(DNode node)`
-- Returns the node after `node` in Q1, or `null` after the last node. Q1 is the display order of a tree view: parents before children, siblings in insertion order. O(1). Python: `next_in_q1(node)` (`None`).
+- Returns the node after `node` in Q1, or `null` after the last node. Q1 is the display order of a tree view: parents before children, siblings in insertion order. Passes over the closing cells of the subtrees that end after `node`: O(1) amortized over a walk through Q1. Python: `next_in_q1(node)` (`None`).
 
 #### `string SubtreeLast(string node)` / `DNode SubtreeLast(DNode node)`
 - Returns the last node of the subtree of `node` in Q1; the subtree is the contiguous block from `node` to it.
-- A short walk down the last children finds it on ordinary trees; beyond that, the end remembered last time is reused when it validates in O(1) (it lies in the subtree and its Q1 successor does not). Asked again for the same node, it is usually O(1).
+- Goes back from the closing cell of `node` over the closing cells that precede it: O(length of the path of last children below `node`). Insertions, deletions and moves do not need it; they use the closing cell directly.
 - Python: `subtree_last(node)`.
 
 #### `bool IsRoot(string node)`
-- Returns `true` if `node` is the root of the tree.
+- Returns `true` if `node` is the root of the tree; `false` for `null` or a name not in the tree (with `strict`, it throws for these).
 
 #### `bool IsLeaf(string node)`
 - Returns `true` if `node` has no outgoing edges.
@@ -149,7 +161,7 @@ Check if one node cannot reach another.
 
 ### And/or Queries on the Topology
 
-"u reaches all of S" is a conjunction (and), "u reaches some of S" a disjunction (or); likewise for "reached by". A constructed node stands for a set of nodes S (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum (`VMin`, `UMin`) or maximum (`VMax`, `UMax`) of each index over S, separately in Q1 and Q2. `V` means S takes the target role, `CanReach(u, S)`; `U` means the source role, `CanReach(S, v)`. A constructed node stores members, not positions, and stays valid while nodes are inserted; after a deletion or a `CutNPaste` it is recomputed on its next use. All methods accept names or `DNode` handles. See [and-or-queries.md](and-or-queries.md).
+"u reaches all of S" is a conjunction (and), "u reaches some of S" a disjunction (or); likewise for "reached by". A constructed node stands for a set of nodes S (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum (`VMin`, `UMin`) or maximum (`VMax`, `UMax`) of each index over S, separately in Q1 and Q2. `V` means S takes the target role, `CanReach(u, S)`; `U` means the source role, `CanReach(S, v)`. A constructed node stores members, not positions, and stays valid while nodes are inserted; after a deletion or a `CutNPaste` it is recomputed on its next use. Members are nodes, not names: a member that was deleted stays out of the set, even if a new node with the same name is inserted later. All methods accept names or `DNode` handles. See [and-or-queries.md](and-or-queries.md).
 
 #### `VMin VMin(IEnumerable<string> nodes)`, `VMax VMax(…)`, `UMin UMin(…)`, `UMax UMax(…)`
 - Build the constructed node of `nodes`; each also takes `IEnumerable<DNode>`.

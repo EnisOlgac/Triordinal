@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Triordinal</RootNamespace>
     <AssemblyName>Triordinal.DList</AssemblyName>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Authors>Enis Olgac</Authors>
     <Description>DList (part of Triordinal): doubly linked list with rational positions and an O(1) precedence test, shared by Triordinal.DTree and Triordinal.DGraph.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

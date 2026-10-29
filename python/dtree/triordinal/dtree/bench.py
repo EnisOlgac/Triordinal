@@ -7,6 +7,7 @@ where ``python benchmarks/bench.py`` does the same):
     python -m triordinal.dtree.bench 1000 1000000    # custom sizes
     python -m triordinal.dtree.bench --quick         # small sizes, a few seconds
     python -m triordinal.dtree.bench --dynamic       # only the dynamic updates and the tree view
+    python -m triordinal.dtree.bench --review        # only the patterns from the review of 1.8.0
     python -m triordinal.dtree.bench --note "idle machine after restart"   # remark for the report
     python -m triordinal.dtree.bench --no-save       # do not write a report
 
@@ -21,18 +22,21 @@ Finally it compares reachability with the parent walk of classical doubly linked
 trees, for single pairs and for and/or queries (VMin, VMax, UMin, UMax), over increasing depth,
 and under dynamic updates, with insertions and queries alternating (including static
 pre/post numbers recomputed after each insertion), and in a use case: a tree view whose
-nodes are inserted, collapsed and expanded while rows are shown.
+nodes are inserted, collapsed and expanded while rows are shown. The last section times the
+complexity patterns pointed out in Onur Safi's review of DTree 1.8.0, and the memory per node.
 Timings depend on the machine; the renumbering counts do not.
 """
 
 import argparse
 import datetime
+import gc
 import io
 import os
 import platform
 import random
 import sys
 import time
+import tracemalloc
 
 import triordinal.dtree as _pkg
 from triordinal.dtree import SINK, SOURCE, DList, DTree
@@ -528,11 +532,107 @@ def bench_tree_view(n, depths, steps, rows=20):
         row(f"{depth:,}", f"{d / steps * 1e6:.1f}", f"{w / steps * 1e6:.1f}", factor(w, d))
 
 
+# -- patterns from the review of DTree 1.8.0 -------------------------------------------------
+
+def _chain(depth):
+    t = DTree("R")
+    t.insert("r", "c0")
+    for i in range(1, depth):
+        t.insert(f"c{i - 1}", f"c{i}")
+    return t
+
+
+def bench_review(depths, rounds, sibling_counts, members, unrelated):
+    print("\n### Patterns from the review of DTree 1.8.0\n")
+    print("Complexity patterns pointed out by Onur Safi. Each new child goes directly before its "
+          "parent's closing cell, so none of them needs a search for the end of a subtree; in 1.8.0 "
+          "the first two grew linearly with the depth.\n")
+    row("pattern", "depth", "operations", "µs per operation")
+    row("---", "---:", "---:", "---:")
+    for depth in depths:
+        # a deep branch is extended at the bottom, then a child is added near its top
+        t = _chain(depth)
+        bottom = f"c{depth - 1}"
+        start = time.perf_counter()
+        for r in range(rounds):
+            t.insert(bottom, f"b{r}")
+            bottom = f"b{r}"
+            t.insert(f"c{r}", f"y{r}")
+        dt = time.perf_counter() - start
+        row("extend the bottom, then a child near the top (one round = 2 insertions)", f"{depth:,}",
+            f"{rounds:,}", f"{dt / rounds * 1e6:.1f}")
+    for depth in depths:
+        t = _chain(depth)
+        step = max(1, depth // rounds)
+        targets = [f"c{i}" for i in range(0, depth, step)][:rounds]
+        start = time.perf_counter()
+        for i, s in enumerate(targets):
+            t.insert_before(s, f"w{i}")                # s is the first child of its parent
+        dt = time.perf_counter() - start
+        row("insert_before a first child", f"{depth:,}", f"{len(targets):,}", f"{dt / len(targets) * 1e6:.1f}")
+
+    print("\nNodes with many children: the position among the siblings is still found in the list of "
+          "children, so these operations grow with the number of siblings.\n")
+    row("pattern", "children", "operations", "µs per operation")
+    row("---", "---:", "---:", "---:")
+    for k in sibling_counts:
+        t = DTree("S")
+        t.insert("r", "p")
+        for i in range(k):
+            t.insert("p", f"k{i}")
+        start = time.perf_counter()
+        for i in range(k - 1, -1, -1):
+            t.delete(f"k{i}")
+        dt = time.perf_counter() - start
+        row("delete the children, last to first", f"{k:,}", f"{k:,}", f"{dt / k * 1e6:.1f}")
+        t = DTree("S")
+        t.insert("r", "p")
+        for i in range(k):
+            t.insert("p", f"k{i}")
+        ops = min(k, 2_000)
+        start = time.perf_counter()
+        for i in range(ops):
+            t.insert_after(f"k{k - 1 - i % 10}", f"a{i}")
+        dt = time.perf_counter() - start
+        row("insert_after one of the last children", f"{k:,}", f"{ops:,}", f"{dt / ops * 1e6:.1f}")
+
+    print("\nA constructed node is recomputed on its next use after any deletion or move in the tree, "
+          "O(k log k) for k members, even if the change does not touch the set.\n")
+    row("pattern", "members", "rounds", "ms per round")
+    row("---", "---:", "---:", "---:")
+    t, names, _ = build("random", 2 * members)
+    vmin = t.vmin(names[1:members + 1])
+    vmin.reaches_all(names[0])
+    start = time.perf_counter()
+    for r in range(unrelated):
+        t.insert(names[-1], f"z{r}")
+        t.delete(f"z{r}")
+        vmin.reaches_all(names[0])
+    dt = time.perf_counter() - start
+    row("unrelated insert + delete, then a query", f"{members:,}", f"{unrelated:,}", f"{dt / unrelated * 1e3:.2f}")
+
+    print("\nMemory, measured with tracemalloc (closing cells included).\n")
+    row("structure", "nodes", "bytes per node")
+    row("---", "---:", "---:")
+    n = 100_000 if members >= 100_000 else 10_000
+    for label, make in (("DTree, random tree", lambda: build("random", n)[0]),
+                        ("DTree, chain", lambda: build("chain", n)[0]),
+                        ("parent dictionary", lambda: {f"n{i}": f"n{i - 1}" for i in range(1, n)})):
+        gc.collect()
+        tracemalloc.start()
+        obj = make()
+        size = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        row(label, f"{n:,}", f"{size / n:,.0f}")
+        del obj
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sizes", nargs="*", type=int, help="tree sizes (default: 10000 100000)")
     ap.add_argument("--quick", action="store_true", help="small sizes for a fast check")
     ap.add_argument("--dynamic", action="store_true", help="only the dynamic updates and the tree view")
+    ap.add_argument("--review", action="store_true", help="only the patterns from the review of 1.8.0")
     ap.add_argument("--note", default="", help="remark written into the report (e.g. machine state)")
     ap.add_argument("--no-save", action="store_true", help="do not write a Markdown report")
     args = ap.parse_args()
@@ -552,6 +652,10 @@ def main():
 
 
 def run(args):
+    if args.review:
+        print(f"DTree benchmarks, Python {sys.version.split()[0]}")
+        _review(args.quick)
+        return
     if args.dynamic:
         print(f"DTree benchmarks, Python {sys.version.split()[0]}")
         if args.quick:
@@ -576,6 +680,14 @@ def run(args):
         bench_sets(100_000, [10, 100, 1_000, 10_000], 1_000, 200)
         bench_dynamic(20_000, [10, 100, 1_000, 10_000], [1_000, 2_000, 5_000])
         bench_tree_view(20_000, [10, 100, 1_000, 10_000], 5_000)
+    _review(args.quick)
+
+
+def _review(quick):
+    if quick:
+        bench_review([1_000, 2_000], 300, [2_000, 8_000], 10_000, 100)
+    else:
+        bench_review([2_000, 4_000, 8_000], 1_000, [10_000, 40_000], 100_000, 100)
 
 
 if __name__ == "__main__":

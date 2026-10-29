@@ -37,26 +37,35 @@ Each tree is encoded by two orderings of its nodes, both bracketed by the symbol
 
 Node *u* can reach node *v* if and only if *u* strictly precedes *v* in both `Q1` and `Q2`. Reachability is irreflexive: no node reaches itself.
 
-Inserting the edge (*u*, *v*) places *v* immediately after *u* in `Q2`, and at the end of *u*'s subtree in `Q1`.
+Inserting the edge (*u*, *v*) places *v* immediately after *u* in `Q2`, and at the end of *u*'s subtree in `Q1`. The end of a subtree is marked: a node with children has a *closing cell* in each list, directly after the last cell of its subtree, and a new child goes directly before its parent's closing cell. So no insertion, deletion or move has to search for the end of a subtree. Closing cells are not nodes; `Q1` and `Q2`, as the library shows them, list the nodes only.
 
 ## Background and Prior Art
 
-`Q1` is the pre-order of a left-to-right depth-first traversal; `Q2` is the reversed post-order of the same traversal (equivalently, the pre-order with siblings right to left). That ancestry in a tree can be decided by comparing pre- and post-order positions is classical (Dietz, 1982). Maintaining positions in a list under insertions is the order-maintenance problem (Dietz & Sleator, 1987; Bender, Cole, Demaine, Farach-Colton & Zito, 2002); the Python implementation uses rational positions instead (see below) and borrows the density rule of Bender et al. for its rare renumbering.
+`Q1` is the pre-order of a left-to-right depth-first traversal; `Q2` is the reversed post-order of the same traversal (equivalently, the pre-order with siblings right to left). That ancestry in a tree can be decided by comparing pre- and post-order positions is classical (Dietz, 1982). Maintaining positions in a list under insertions is the order-maintenance problem (Dietz & Sleator, 1987; Bender, Cole, Demaine, Farach-Colton & Zito, 2002); DTree uses rational positions instead (see below) and borrows the density rule of Bender et al. for its rare renumbering.
 
-The insertion points of a new node are known in advance (see the [paper](#paper)): it becomes the last child of its parent in `Q1` (placed before the parent's delimiter) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed. A summary of what is new compared to this prior art is at the top of this page.
+The insertion points of a new node are known in advance (see the [paper](#paper)): it becomes the last child of its parent in `Q1` (placed before the parent's delimiter, its closing cell) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed. A summary of what is new compared to this prior art is at the top of this page.
 
 - P. F. Dietz. Maintaining order in a linked list. *STOC 1982*, 122–127.
 - P. F. Dietz, D. D. Sleator. Two algorithms for maintaining order in a list. *STOC 1987*, 365–372.
 - M. A. Bender, R. Cole, E. D. Demaine, M. Farach-Colton, J. Zito. Two simplified algorithms for maintaining order in a list. *ESA 2002*, LNCS 2461, 152–164.
 
-### Positions in the Python implementation
+### Positions
 
-Positions are fractions, an idea of the author. A new node gets the *mediant* (a+c)/(b+d) of its neighbors a/b and c/d (the Stern–Brocot construction), which always lies strictly between them, so inserting a node normally moves no other node. Repeated insertion into the same gap—a node with many children, or growth at either end of a list—keeps positions at O(log n) bits: 17 bits for a star of 100,000 children. Only insertions that alternate between the two halves of a gap make denominators grow (like Fibonacci numbers); when one would exceed 64 bits, a small surrounding region is renumbered with simple fractions k/2³², larger regions being required to be sparser, as in Bender et al. See `python/benchmarks/` and the [changelog](CHANGELOG.md) for measurements.
+Positions are fractions, an idea of the author. A new node gets the *mediant* (a+c)/(b+d) of its neighbors a/b and c/d (the Stern–Brocot construction), which always lies strictly between them, so inserting a node normally moves no other node. Repeated insertion into the same gap—a node with many children, or growth at either end of a list—keeps positions at O(log n) bits: 17 bits for a star of 100,000 children. Only insertions that alternate between the two halves of a gap make denominators grow (like Fibonacci numbers); when one grows too large, a small surrounding region is renumbered with simple fractions, larger regions being required to be sparser, as in Bender et al. A deep chain nests in the same way, each node into the gap between its parent and the parent's closing cell, and is renumbered locally at regular intervals of depth. See the benchmarks and the [changelog](CHANGELOG.md) for measurements.
+
+The two implementations use different limits:
+
+| | Python | C# |
+|---|---|---|
+| numbers | unbounded integers | 64-bit integers, compared with 128-bit products |
+| renumbering when | a denominator would exceed 64 bits | a denominator would exceed 2⁴⁰, or a numerator 2⁶¹ |
+| renumbered positions | k/2³² | k/2²⁰ |
 
 ## Key Features
 
 - Single-rooted directed tree; no aliasing, no duplicate nodes
 - Reachability check in O(1) via positions in `Q1` and `Q2`
+- Insertion in O(1): the end of every subtree is marked by a closing cell (plus the occasional local renumbering)
 - Dynamic operations: `insert`, `delete` (children move up), `delete_subtree`, `cut_n_paste` (move a subtree)
 - Structural queries: ancestry, depth, paths, subtrees
 - And/or queries on the topology in O(1) or O(log k) via constructed nodes VMin, VMax, UMin and UMax (see below)
@@ -161,7 +170,7 @@ python -m unittest discover -s tests
 
 ## C# Implementation
 
-[`csharp/Triordinal.DTree/`](csharp/Triordinal.DTree/) (with the list in [`csharp/Triordinal.DList/`](csharp/Triordinal.DList/)) is a C# (.NET 9) port of the Python implementation with the same API in C# naming: `Insert`, `Delete`, `DeleteSubtree`, `CutNPaste`, `CanReach`, `PathToRoot`, `Depth`, …, and `Q1`/`Q2` as `DList` projections with rational positions. Its test program checks every query against a brute-force model, as the Python tests do:
+[`csharp/Triordinal.DTree/`](csharp/Triordinal.DTree/) (with the list in [`csharp/Triordinal.DList/`](csharp/Triordinal.DList/)) is a C# (.NET 9) port of the Python implementation with the same API in C# naming: `Insert`, `Delete`, `DeleteSubtree`, `CutNPaste`, `CanReach`, `PathToRoot`, `Depth`, …, and `Q1`/`Q2` as read-only views (`Projection`) of the two lists with rational positions. Its test program checks every query against a brute-force model, as the Python tests do:
 
 ```
 dotnet run --project csharp/Triordinal.DTree.Tests -c Release            # tests
@@ -224,7 +233,7 @@ To cite the software itself, use its Zenodo archive: E. Olgac, *Triordinal—Top
 
 ## Acknowledgements
 
-Thanks to Onur Safi for a careful review of DTree 1.8.0, which led to the fixes in Triordinal 2.0.0 and to the work planned for 2.1.0, and to Sinan Emiroğlu for his feedback, in particular on the package name clash and on stating the contribution of DTree more concisely.
+Thanks to Onur Safi for a careful review of DTree 1.8.0, which led to the fixes and changes in Triordinal 2.0.0 and 2.1.0, and to Sinan Emiroğlu for his feedback, in particular on the package name clash and on stating the contribution of DTree more concisely.
 
 ## License
 
