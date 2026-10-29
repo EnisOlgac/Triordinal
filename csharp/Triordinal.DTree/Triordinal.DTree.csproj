@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>DirectedTrees</RootNamespace>
+    <AssemblyName>Triordinal.DTree</AssemblyName>
+    <Version>2.0.0</Version>
+    <Authors>Enis Olgac</Authors>
+    <Description>DTree (part of Triordinal): incremental encoding of the topology of directed trees by two projections (Q1, Q2): O(1) reachability, and/or queries on the topology of the tree, dynamic (incremental) updates.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- NuGet package -->
+    <PackageId>Triordinal.DTree</PackageId>
+    <Title>Triordinal.DTree</Title>
+    <PackageTags>directed-tree;tree-topology;reachability;and-or-queries;incremental-encoding;dynamic-tree;graph-theory;data-structure</PackageTags>
+    <PackageProjectUrl>https://github.com/EnisOlgac/Triordinal</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EnisOlgac/Triordinal</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md</PackageReleaseNotes>
+    <Copyright>Copyright (c) Enis Olgac</Copyright>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="Triordinal.DTree.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Triordinal.DList\Triordinal.DList.csproj" />
+  </ItemGroup>
+
+</Project>

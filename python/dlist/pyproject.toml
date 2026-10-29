@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triordinal-dlist"
+version = "2.0.0"
+description = "DList (part of Triordinal): doubly linked list with rational positions and an O(1) precedence test, shared by triordinal-dtree and triordinal-dgraph"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Enis Olgac", email = "enis@digraphs.info" }]
+keywords = ["order maintenance", "linked list", "rational positions", "precedence", "data structure"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/EnisOlgac/Triordinal"
+Changelog = "https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["triordinal.dlist*"]
+namespaces = true

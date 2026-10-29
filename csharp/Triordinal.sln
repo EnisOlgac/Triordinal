@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tree.View", "Tree.View\Tree.View.csproj", "{97A1AF2B-43B7-FE26-2ECB-96CA31F9F869}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Triordinal.DTree", "Triordinal.DTree\Triordinal.DTree.csproj", "{4702F11A-11D9-4869-B8AD-5C1D74E27047}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Triordinal.DTree.Tests", "Triordinal.DTree.Tests\Triordinal.DTree.Tests.csproj", "{10D65842-5886-48A1-9353-1E17BFD7935E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Triordinal.DList", "Triordinal.DList\Triordinal.DList.csproj", "{6C1E4D2A-8B3F-4E5A-9D7C-2F1A0B3C4D5E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{97A1AF2B-43B7-FE26-2ECB-96CA31F9F869}.Debug|x64.ActiveCfg = Debug|x64
+		{97A1AF2B-43B7-FE26-2ECB-96CA31F9F869}.Debug|x64.Build.0 = Debug|x64
+		{97A1AF2B-43B7-FE26-2ECB-96CA31F9F869}.Release|x64.ActiveCfg = Release|x64
+		{97A1AF2B-43B7-FE26-2ECB-96CA31F9F869}.Release|x64.Build.0 = Release|x64
+		{4702F11A-11D9-4869-B8AD-5C1D74E27047}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4702F11A-11D9-4869-B8AD-5C1D74E27047}.Debug|x64.Build.0 = Debug|Any CPU
+		{4702F11A-11D9-4869-B8AD-5C1D74E27047}.Release|x64.ActiveCfg = Release|Any CPU
+		{4702F11A-11D9-4869-B8AD-5C1D74E27047}.Release|x64.Build.0 = Release|Any CPU
+		{10D65842-5886-48A1-9353-1E17BFD7935E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{10D65842-5886-48A1-9353-1E17BFD7935E}.Debug|x64.Build.0 = Debug|Any CPU
+		{10D65842-5886-48A1-9353-1E17BFD7935E}.Release|x64.ActiveCfg = Release|Any CPU
+		{10D65842-5886-48A1-9353-1E17BFD7935E}.Release|x64.Build.0 = Release|Any CPU
+		{6C1E4D2A-8B3F-4E5A-9D7C-2F1A0B3C4D5E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6C1E4D2A-8B3F-4E5A-9D7C-2F1A0B3C4D5E}.Debug|x64.Build.0 = Debug|Any CPU
+		{6C1E4D2A-8B3F-4E5A-9D7C-2F1A0B3C4D5E}.Release|x64.ActiveCfg = Release|Any CPU
+		{6C1E4D2A-8B3F-4E5A-9D7C-2F1A0B3C4D5E}.Release|x64.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {124F5B7C-A676-4F98-B4D0-079B37FB65F1}
+	EndGlobalSection
+EndGlobal

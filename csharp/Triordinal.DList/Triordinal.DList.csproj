@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Triordinal</RootNamespace>
+    <AssemblyName>Triordinal.DList</AssemblyName>
+    <Version>2.0.0</Version>
+    <Authors>Enis Olgac</Authors>
+    <Description>DList (part of Triordinal): doubly linked list with rational positions and an O(1) precedence test, shared by Triordinal.DTree and Triordinal.DGraph.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- NuGet package -->
+    <PackageId>Triordinal.DList</PackageId>
+    <Title>Triordinal.DList</Title>
+    <PackageTags>order-maintenance;linked-list;rational-positions;precedence;data-structure</PackageTags>
+    <PackageProjectUrl>https://github.com/EnisOlgac/Triordinal</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EnisOlgac/Triordinal</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md</PackageReleaseNotes>
+    <Copyright>Copyright (c) Enis Olgac</Copyright>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- the cell-level operations are for the node handles of DTree and DGraph -->
+    <InternalsVisibleTo Include="Triordinal.DTree" />
+    <InternalsVisibleTo Include="Triordinal.DGraph" />
+    <InternalsVisibleTo Include="Triordinal.DTree.Tests" />
+  </ItemGroup>
+
+</Project>

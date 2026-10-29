@@ -1,0 +1,156 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{verbatim}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{tabularx}
+
+\title{DTree Public API Reference}
+\author{}
+\date{}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcommand{\apimethod}[3]{%
+	\noindent\begin{tabularx}{\textwidth}{@{}lL@{}}
+		\textbf{#1 -- } & #3 \\
+		& \texttt{#2} \\
+	\end{tabularx}
+	\vspace{-0.3\baselineskip}
+	\begin{itemize}[leftmargin=2em, label=--]%
+	}
+	
+	\begin{document}
+		\maketitle
+		
+		\section*{Overview}
+		
+		The \texttt{DTree} class represents a symbolic directed tree with a unique root and internal support for dual projections (Q1 and Q2). Each node is identified by a unique string. Edges are added incrementally, and projections are updated automatically. Structural operations preserve the tree’s topological validity.
+		
+		\section*{Constructor}
+		
+		\apimethod{Constructor}{Create a new tree with a given identifier}{DTree(string id)}
+		\item Initializes a new directed tree with the given identifier.
+		\item The root is determined implicitly as the source of the first inserted edge.
+		\item Q1 and Q2 projections are initialized automatically.
+	\end{itemize}
+	
+	\section*{Core Methods}
+	
+	\apimethod{Insert}{Insert a new edge into the tree}{void Insert(string parent, string child)}
+	\item Adds a directed edge from \texttt{parent} to \texttt{child}.
+	\item The \texttt{parent} must already exist in the tree.
+	\item The \texttt{child} must not already exist.
+	\item Updates Q1 and Q2 projections accordingly.
+\end{itemize}
+
+\apimethod{Contains}{Check if a node exists}{bool Contains(string node)}
+\item Returns \texttt{true} if the specified node is present in the tree.
+\item Otherwise returns \texttt{false}.
+\end{itemize}
+
+\apimethod{GetParent}{Return the parent of a node}{string GetParent(string node)}
+\item Returns the parent of \texttt{node}.
+\item If \texttt{node} is the root, returns \texttt{null}.
+\item Throws an error if the node is not found.
+\end{itemize}
+
+\section*{Structural Reconfiguration}
+
+\apimethod{CutNPaste}{Detach a subtree from its root and attach it to another}{void CutNPaste(string u1, string u2)}
+\item Extracts the subtree rooted at \texttt{u2} from the tree rooted at \texttt{u1}.
+\item The subtree is detached from its original parent and reattached under a new one.
+\item Ensures that no orphaned structure remains in the source tree.
+\item Both source and destination trees must be structurally valid after the operation.
+\end{itemize}
+
+\apimethod{Delete}{Remove a node and reattach its children, if any, to its parent}{void Delete(string node)}
+\item Deletes \texttt{node} from the tree.
+\item If \texttt{node} has children, they are reattached to \texttt{RootOf(node)}.
+\item Behaves as a shorthand for \texttt{CutNPaste(node, RootOf(node))}.
+\item If \texttt{node} is the root, the operation is disallowed.
+\end{itemize}
+
+\section*{Accessors}
+
+\apimethod{Q1}{Return the Q1 projection}{DList Q1}
+\item Returns a copy of the Q1 projection (left-to-right traversal).
+\item The projection reflects the current visible tree state.
+\end{itemize}
+
+\apimethod{Q2}{Return the Q2 projection}{DList Q2}
+\item Returns a copy of the Q2 projection (right-to-left traversal).
+\item Q2 is the sibling-reversed counterpart of Q1.
+\end{itemize}
+
+\apimethod{Source}{Return the symbolic source node}{string Source}
+\item Returns the symbolic start marker of all projections.
+\item This node is \textbf{not} part of the tree structure.
+\item It conceptually acts as the left bracket delimiting Q1 and Q2.
+\end{itemize}
+
+\apimethod{Sink}{Return the symbolic sink node}{string Sink}
+\item Returns the symbolic end marker of all projections.
+\item This node is \textbf{not} part of the tree structure.
+\item It conceptually acts as the right bracket delimiting Q1 and Q2.
+\end{itemize}
+
+\section*{Query Methods}
+
+\subsection*{Reachability}
+
+\apimethod{CanReach}{Check if one node can reach another}{bool CanReach(string u, string v)}
+\item Returns \texttt{true} if there is a directed path from node \texttt{u} to node \texttt{v}.
+\item The check is structural and respects tree hierarchy.
+\end{itemize}
+
+\apimethod{CanNotReach}{Check if one node cannot reach another}{bool CanNotReach(string u, string v)}
+\item Returns \texttt{true} if there is no directed path from node \texttt{u} to node \texttt{v}.
+\item Logical negation of \texttt{CanReach(u, v)}.
+\end{itemize}
+
+\subsection*{Ancestry and Structure}
+
+\apimethod{IsRoot}{Check if a node is the root}{bool IsRoot(string node)}
+\item Returns \texttt{true} if \texttt{node} is the root of the tree.
+\end{itemize}
+
+\apimethod{IsLeaf}{Check if a node has no children}{bool IsLeaf(string node)}
+\item Returns \texttt{true} if \texttt{node} has no outgoing edges.
+\end{itemize}
+
+\apimethod{IsAncestor}{Check if one node is an ancestor of another}{bool IsAncestor(string u, string v)}
+\item Returns \texttt{true} if node \texttt{u} lies on the path from the root to node \texttt{v}.
+\end{itemize}
+
+\apimethod{IsDescendant}{Check if one node is a descendant of another}{bool IsDescendant(string u, string v)}
+\item Returns \texttt{true} if node \texttt{u} lies below node \texttt{v} in the tree.
+\item Equivalent to \texttt{IsAncestor(v, u)}.
+\end{itemize}
+
+\apimethod{SameSubtree}{Check if two nodes belong to the same tree}{bool SameSubtree(string u, string v)}
+\item Returns \texttt{true} if both nodes share the same root.
+\item Useful for validating \texttt{CutNPaste} targets.
+\end{itemize}
+
+\apimethod{SubtreeSize}{Return the number of nodes in a subtree}{int SubtreeSize(string node)}
+\item Returns the size (inclusive) of the subtree rooted at \texttt{node}.
+\item Includes the node itself and all its descendants.
+\end{itemize}
+
+\apimethod{Depth}{Return the depth of a node}{int Depth(string node)}
+\item Returns the distance from the root to \texttt{node}.
+\item The root has depth 0.
+\end{itemize}
+
+\apimethod{PathToRoot}{Return the list of nodes from a node to the root}{List<string> PathToRoot(string node)}
+\item Returns the sequence of nodes on the path from \texttt{node} to the root.
+\item The last entry in the list is the root itself.
+\end{itemize}
+
+\apimethod{RootToPath}{Return the list of nodes from the root to a node}{List<string> RootToPath(string node)}
+\item Returns the sequence of nodes on the path from the root to \texttt{node}.
+\item The first entry in the list is the root itself.
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <WarningLevel>2</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <DebugType>full</DebugType>
+    <FileAlignment>1024</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <DebugType>none</DebugType>
+    <FileAlignment>1024</FileAlignment>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Triordinal.DTree\Triordinal.DTree.csproj" />
+  </ItemGroup>
+</Project>

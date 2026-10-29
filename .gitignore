@@ -1,0 +1,38 @@
+# --- LaTeX build artifacts (keep .tex and the final .pdf) ---
+*.aux
+*.aux_
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+
+# --- .NET / Visual Studio ---
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+TestResults/
+packages/
+*.nupkg
+*.snupkg
+nupkg/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/

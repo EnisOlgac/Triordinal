@@ -1,0 +1,71 @@
+name: publish
+
+# Runs when a GitHub release is published (gh release create vX.Y.Z ...):
+# builds the Python package and the NuGet package, checks that both carry the
+# release version, and uploads them to PyPI (triordinal-dlist, triordinal-dtree) and NuGet
+# (Triordinal.DList, Triordinal.DTree). All packages share one version number.
+# Both uploads use Trusted Publishing: no passwords or API keys are stored in the repository.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write          # PyPI Trusted Publishing, no token stored
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test
+        run: |
+          (cd python/dlist && python -m unittest discover -s tests)
+          (cd python/dtree && python -m unittest discover -s tests)
+      - name: Check versions
+        run: |
+          for d in dlist dtree; do
+            v=$(python -c "import tomllib; print(tomllib.load(open('python/$d/pyproject.toml','rb'))['project']['version'])")
+            test "v$v" = "${{ github.event.release.tag_name }}" || { echo "python/$d version $v does not match tag ${{ github.event.release.tag_name }}"; exit 1; }
+          done
+      - name: Build
+        run: |
+          python -m pip install --upgrade build
+          python -m build python/dlist --outdir dist
+          python -m build python/dtree --outdir dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  nuget:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write          # NuGet Trusted Publishing, no long-lived API key stored
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Test
+        run: dotnet run --project csharp/Triordinal.DTree.Tests -c Release
+      - name: Pack
+        run: |
+          dotnet pack csharp/Triordinal.DList -c Release -o nupkg
+          dotnet pack csharp/Triordinal.DTree -c Release -o nupkg
+      - name: Check version
+        run: |
+          ls nupkg
+          for p in Triordinal.DList Triordinal.DTree; do
+            test -f "nupkg/$p.${GITHUB_REF_NAME#v}.nupkg" || { echo "no $p package for version ${GITHUB_REF_NAME#v}"; exit 1; }
+          done
+      - name: NuGet login (short-lived API key via OIDC)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}    # nuget.org profile name, not the email address
+      - name: Push
+        run: dotnet nuget push "nupkg/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

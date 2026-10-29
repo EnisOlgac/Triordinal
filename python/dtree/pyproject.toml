@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triordinal-dtree"
+version = "2.0.0"
+description = "DTree (part of Triordinal): incremental encoding of the topology of directed trees by two projections (Q1, Q2): O(1) reachability, and/or queries on the topology of the tree, dynamic (incremental) updates"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["triordinal-dlist>=2.0.0,<3"]
+authors = [{ name = "Enis Olgac", email = "enis@digraphs.info" }]
+keywords = ["directed tree", "tree topology", "reachability", "and/or queries", "incremental encoding", "dynamic tree", "graph theory", "data structure"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/EnisOlgac/Triordinal"
+Documentation = "https://github.com/EnisOlgac/Triordinal/blob/main/docs/API.md"
+Changelog = "https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md"
+Paper = "https://doi.org/10.5772/intechopen.1013408"
+"DTree archive" = "https://doi.org/10.5281/zenodo.23395710"
+
+[tool.setuptools.packages.find]
+include = ["triordinal.dtree*"]
+namespaces = true

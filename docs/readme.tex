@@ -1,0 +1,69 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb, enumitem, hyperref, geometry}
+\geometry{margin=1in}
+
+\title{\texttt{DTree} -- Directed Tree Library for Symbolic Structure}
+\author{E. Olgac}
+\date{\today}
+
+\begin{document}
+	
+	\maketitle
+	
+	\section*{Overview}
+	
+	\texttt{DTree} is a minimal C\# implementation of a directed tree structure with symbolic projection capabilities. It is designed to support top-down and bottom-up traversals of uniquely rooted trees, and expose their structural layout through two linear projections, \texttt{Q1} and \texttt{Q2}.
+	
+	This repository contains the complete implementation, with support for edge insertion, deletion, subtree detachment and reattachment, and path-based queries.
+	
+	\section*{Key Features}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Single-rooted directed tree with implicit edge semantics
+		\item Deterministic structure: no aliasing, no duplicate nodes
+		\item Symbolic projection support via \texttt{Q1} (left-to-right) and \texttt{Q2} (right-to-left)
+		\item Dynamic operations:
+		\begin{itemize}
+			\item \texttt{Insert(parent, child)}
+			\item \texttt{Delete(node)}
+			\item \texttt{CutNPaste(sourceRoot, subtreeRoot)}
+			\item \texttt{CanReach(u, v)} / \texttt{CanNotReach(u, v)}
+		\end{itemize}
+		\item Public interface exposes both structure and projection via safe access
+	\end{itemize}
+	
+	\section*{Usage}
+	
+	Create a new tree with a specified identifier:
+	\begin{verbatim}
+		var T = new DTree("P1");
+		T.Insert("A", "B");
+		T.Insert("B", "C");
+	\end{verbatim}
+	
+	Query structure:
+	\begin{verbatim}
+		T.CanReach("A", "C");   // returns true
+		T.PathToRoot("C");      // returns ["C", "B", "A"]
+	\end{verbatim}
+	
+	\section*{Projection Model}
+	
+	The structure of each tree is encoded by two projections:
+	\begin{itemize}
+		\item \texttt{Q1} -- Left-to-right traversal order
+		\item \texttt{Q2} -- Right-to-left sibling-reversed order
+	\end{itemize}
+	
+	Connectivity is determined by position: node \( u \) can reach \( v \) if and only if \( u \) precedes \( v \) in both \texttt{Q1} and \texttt{Q2}.
+	
+	\section*{License}
+	
+	This project is released under the MIT License. See \texttt{LICENSE.md} for details.
+	
+	\section*{Author}
+	
+	E. Olgac \\
+	\href{https://github.com/eo-labs}{https://github.com/eo-labs}
+	
+\end{document}

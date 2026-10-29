@@ -1,0 +1,13 @@
+{
+  "title": "Triordinal—Topology and Structure of Directed Trees and Graphs: An Incremental Encoding",
+  "upload_type": "software",
+  "creators": [
+    {"name": "Olgac, Enis", "orcid": "0009-0009-7560-6107"}
+  ],
+  "license": "MIT",
+  "keywords": ["directed tree", "directed graph", "tree topology", "reachability", "linear orders", "incremental encoding", "and/or queries", "Python", "C#"],
+  "related_identifiers": [
+    {"identifier": "10.5281/zenodo.23395710", "relation": "continues", "scheme": "doi", "resource_type": "software"},
+    {"identifier": "10.5772/intechopen.1013408", "relation": "isSupplementTo", "scheme": "doi", "resource_type": "publication-section"}
+  ]
+}

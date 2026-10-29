@@ -1,0 +1,46 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    # Tree.View is a WPF app (net9.0-windows), so the solution builds on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Build
+        run: dotnet build csharp/Triordinal.sln --configuration Release -p:Platform=x64
+
+  csharp:
+    # C# port of the Python implementation (csharp/Triordinal.DTree/) with its test program.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Test
+        run: dotnet run --project csharp/Triordinal.DTree.Tests -c Release
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test DList
+        working-directory: python/dlist
+        run: python -m unittest discover -s tests -v
+      - name: Test DTree
+        working-directory: python/dtree
+        run: python -m unittest discover -s tests -v

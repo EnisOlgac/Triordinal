@@ -1,0 +1,66 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Triordinal—Topology and Structure of Directed Trees and Graphs: An Incremental Encoding"
+type: software
+authors:
+  - family-names: Olgac
+    given-names: Enis
+    email: enis@digraphs.info
+    orcid: "https://orcid.org/0009-0009-7560-6107"
+repository-code: "https://github.com/EnisOlgac/Triordinal"
+license: MIT
+version: "2.0.0"
+date-released: "2026-10-29"
+keywords:
+  - directed tree
+  - tree topology
+  - reachability
+  - dual projection
+  - graph theory
+  - Python
+  - C#
+abstract: >-
+  Triordinal continues DTree (versions 1.0.0 to 1.8.0, doi:10.5281/zenodo.23395710).
+  DTree encodes the topology and structure of single-rooted directed trees
+  explicitly, by two linear projections Q1 and Q2: node u reaches node v if
+  and only if u strictly precedes v in both. A classical tree answers such
+  questions by walking up parent links—a blind date that only shows the next
+  step. DTree navigates toward the target: two positions tell at once whether
+  it is reachable, independent of depth. The encoding is updated
+  incrementally: a new node goes to positions known in advance, and rational
+  (mediant) positions mean that inserting a node normally moves no other
+  node. Beyond single pairs, and/or queries on the topology (does u reach all
+  or some of a set; is v reached by all or some) are answered with
+  constructed nodes. Python and C# implementations (PyPI: triordinal-dtree,
+  NuGet: Triordinal.DTree, both on the shared list triordinal-dlist) support insertion, deletion, subtree moves, path
+  queries and node handles; a WPF viewer is included.
+preferred-citation:
+  type: generic
+  title: "Topology and Structure of Directed Trees: An Incremental Encoding"
+  authors:
+    - family-names: Olgac
+      given-names: Enis
+      orcid: "https://orcid.org/0009-0009-7560-6107"
+  collection-title: "The Latest Advances in the Field of Intelligent Systems"
+  collection-type: book
+  editors:
+    - family-names: Domínguez-Morales
+      given-names: Manuel
+    - family-names: Luna-Perejón
+      given-names: Francisco
+  publisher:
+    name: IntechOpen
+  isbn: "978-1-83635-254-9"
+  date-published: "2025-12-11"
+  year: 2025
+  doi: "10.5772/intechopen.1013408"
+  url: "https://doi.org/10.5772/intechopen.1013408"
+references:
+  - type: software
+    title: "DTree—Topology and Structure of Directed Trees: An Incremental Encoding"
+    authors:
+      - family-names: Olgac
+        given-names: Enis
+        orcid: "https://orcid.org/0009-0009-7560-6107"
+    doi: "10.5281/zenodo.23395710"
+    repository-code: "https://github.com/EnisOlgac/DTree"
