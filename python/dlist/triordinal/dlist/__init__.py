@@ -205,7 +205,9 @@ class DList:
 
     def insert_after(self, name: str, anchor: str) -> None:
         """Place ``name`` directly after ``anchor``; moves it if already present (List.cs: InsAfter)."""
-        if name == anchor or name == SINK:
+        if name in (SOURCE, SINK):
+            raise ValueError(f"the markers {SOURCE} and {SINK} cannot be inserted or moved")
+        if name == anchor:
             return
         if anchor == SINK:
             return self.insert_before(name, SINK)
@@ -217,7 +219,9 @@ class DList:
 
     def insert_before(self, name: str, anchor: str) -> None:
         """Place ``name`` directly before ``anchor``; moves it if already present (List.cs: InsBefore)."""
-        if name == anchor or name == SOURCE:
+        if name in (SOURCE, SINK):
+            raise ValueError(f"the markers {SOURCE} and {SINK} cannot be inserted or moved")
+        if name == anchor:
             return
         if anchor == SOURCE:
             return self.insert_after(name, SOURCE)
@@ -232,6 +236,8 @@ class DList:
         return list(self) == list(other)
 
     def remove(self, name: str) -> None:
+        if name in (SOURCE, SINK):
+            raise ValueError("markers cannot be removed")
         self._unlink(self._cells.pop(name))
 
     def cut_block(self, first: str, last: str) -> List[str]:

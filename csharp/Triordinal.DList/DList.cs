@@ -18,13 +18,16 @@ namespace Triordinal {
     /// small surrounding region renumbered with simple fractions k/2^20, larger regions being
     /// required to be sparser (as in Bender et al., ESA 2002). Rational positions were Enis
     /// Olgac's idea; this C# version follows the Python reference implementation (1.1.0).
-    /// Positions are 64-bit (Num, Den) pairs compared with 128-bit products; all arithmetic is
-    /// checked, so an overflow (only conceivable for many millions of nodes) throws instead of
-    /// silently corrupting the order.
+    /// Positions are 64-bit (Num, Den) pairs compared with 128-bit products. A numerator grows
+    /// with value times denominator, and values grow with every insertion at an end of the list
+    /// (deletions never shrink them), so a region is also renumbered when a numerator would
+    /// exceed 2^61. Every mediant is then the sum of two numerators below 2^61 and cannot
+    /// overflow, and a cell is linked only after its position has been computed.
     /// </remarks>
     public sealed class DList : IEnumerable<string> {
         private const long Q = 1L << 20;        // denominator used when a region is renumbered
         private const long Limit = 1L << 40;    // renumber when a denominator would exceed this
+        private const long NumLimit = 1L << 61; // ... or a numerator; two such numerators sum below 2^62
         private const double Slack = 16.0;      // minimum spacing (in 1/Q) after renumbering
         private const double Growth = 2.0;      // each doubling of the region raises the spacing
 
@@ -96,21 +99,26 @@ namespace Triordinal {
 
         private void LinkAfter(Cell cell, Cell prev) {
             var nxt = prev.Next!;
+            long num, den;
+            if (prev == _first && nxt == _last) {    // first node of an empty list
+                num = 0; den = 1;
+            } else {
+                // Mediant of the neighbors. Next to SOURCE (-1/0) or SINK (+1/0) this steps by one
+                // whole unit, so a list can grow at either end without renumbering. Computed
+                // before the cell is linked: |Num| <= 2^61 and Den <= 2^40 for every linked cell,
+                // so the sums cannot overflow; checked all the same.
+                checked {
+                    num = prev.Num + nxt.Num;
+                    den = prev.Den + nxt.Den;
+                }
+            }
             cell.Prev = prev;
             cell.Next = nxt;
             prev.Next = cell;
             nxt.Prev = cell;
-            if (prev == _first && nxt == _last) {    // first node of an empty list
-                cell.Num = 0; cell.Den = 1;
-                return;
-            }
-            // Mediant of the neighbors. Next to SOURCE (-1/0) or SINK (+1/0) this steps by one
-            // whole unit, so a list can grow at either end without renumbering.
-            checked {
-                cell.Num = prev.Num + nxt.Num;
-                cell.Den = prev.Den + nxt.Den;
-            }
-            if (cell.Den > Limit) Rebalance(cell);
+            cell.Num = num;
+            cell.Den = den;
+            if (den > Limit || num > NumLimit || num < -NumLimit) Rebalance(cell);
         }
 
         private void Unlink(Cell cell) {
@@ -170,6 +178,8 @@ namespace Triordinal {
         }
 
         private Cell CellFor(string name) {
+            if (name == Marker.Source || name == Marker.Sink)
+                throw new ArgumentException($"the markers {Marker.Source} and {Marker.Sink} cannot be inserted or moved", nameof(name));
             if (_cells.TryGetValue(name, out var cell)) {
                 Unlink(cell);           // an existing node is moved
                 return cell;
@@ -261,7 +271,9 @@ namespace Triordinal {
 
         /// <summary>Place name directly after anchor; moves it if already present (List.cs: InsAfter).</summary>
         public void InsertAfter(string name, string anchor) {
-            if (name == anchor || name == Marker.Sink) return;
+            if (name == Marker.Source || name == Marker.Sink)
+                throw new ArgumentException($"the markers {Marker.Source} and {Marker.Sink} cannot be inserted or moved", nameof(name));
+            if (name == anchor) return;
             if (anchor == Marker.Sink) { InsertBefore(name, Marker.Sink); return; }
             var a = Get(anchor);
             if (a.Next != null && a.Next.Name == name) return;
@@ -271,7 +283,9 @@ namespace Triordinal {
 
         /// <summary>Place name directly before anchor; moves it if already present (List.cs: InsBefore).</summary>
         public void InsertBefore(string name, string anchor) {
-            if (name == anchor || name == Marker.Source) return;
+            if (name == Marker.Source || name == Marker.Sink)
+                throw new ArgumentException($"the markers {Marker.Source} and {Marker.Sink} cannot be inserted or moved", nameof(name));
+            if (name == anchor) return;
             if (anchor == Marker.Source) { InsertAfter(name, Marker.Source); return; }
             var a = Get(anchor);
             if (a.Prev != null && a.Prev.Name == name) return;

@@ -50,6 +50,35 @@ class TestDList(unittest.TestCase):
         self.assertGreater(q.renumber_count, 0)
         self.check(q, ref)
 
+    def test_markers_cannot_be_inserted_moved_or_removed(self):
+        q = DList("Q")
+        q.insert_after("a", SOURCE)
+        for f in (lambda: q.insert_before(SINK, "a"), lambda: q.insert_after(SOURCE, "a"),
+                  lambda: q.insert_after(SINK, "a"), lambda: q.insert_before(SOURCE, "a"),
+                  lambda: q.remove(SOURCE), lambda: q.remove(SINK)):
+            with self.assertRaises(ValueError):
+                f()
+        self.assertEqual(q.to_list(with_markers=True), [SOURCE, "a", SINK])
+
+    def test_many_end_insertions_then_one_gap(self):
+        # the reviewer's pattern: values grow with every insertion at the end, then one gap
+        # is filled alternately; Python's integers do not overflow, the order must hold
+        q = DList("Q")
+        q.insert_after("r", SOURCE)
+        prev = None
+        for i in range(200_000):
+            q.insert_before(f"c{i}", SINK)
+            if prev:
+                q.remove(prev)
+            prev = f"c{i}"
+        left, right, ref = "r", prev, ["r", prev]
+        for i in range(300):
+            name = f"s{i}"
+            q.insert_after(name, left)
+            ref.insert(ref.index(left) + 1, name)
+            left, right = (name, right) if i % 2 else (left, name)
+        self.check(q, ref)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,8 @@ namespace DirectedTrees.Tests {
                 ("list level access", Tests.ListLevelAccess),
                 ("example files", Tests.ExampleFiles),
                 ("DList operations (List.cs)", Tests.DListOperations),
+                ("DList: markers cannot be inserted, moved or removed", Tests.DListMarkers),
+                ("DList: many end insertions, then one gap (no overflow)", Tests.DListNoOverflow),
                 ("random inserts vs reference", Tests.RandomInserts),
                 ("random deletes and moves vs reference", Tests.RandomDeletesAndMoves),
                 ("deep chain", Tests.DeepChain),
@@ -386,6 +388,44 @@ namespace DirectedTrees.Tests {
             Check(q.IsSameAs(r), "IsSameAs");
             r.Remove("c");
             Check(!q.IsSameAs(r), "not IsSameAs");
+        }
+
+        public static void DListMarkers() {
+            var q = new DList("Q");
+            q.InsertAfter("a", Marker.Source);
+            Throws<ArgumentException>(() => q.InsertBefore(Marker.Sink, "a"), "InsertBefore(SINK, a)");
+            Throws<ArgumentException>(() => q.InsertAfter(Marker.Source, "a"), "InsertAfter(SOURCE, a)");
+            Throws<ArgumentException>(() => q.InsertAfter(Marker.Sink, "a"), "InsertAfter(SINK, a)");
+            Throws<ArgumentException>(() => q.InsertBefore(Marker.Source, "a"), "InsertBefore(SOURCE, a)");
+            Throws<InvalidOperationException>(() => q.Remove(Marker.Source), "Remove(SOURCE)");
+            Seq(q.ToList(true), new[] { Marker.Source, "a", Marker.Sink }, "list intact");
+        }
+
+        public static void DListNoOverflow() {
+            // The reviewer's pattern: a child is added at the end and the previous one deleted,
+            // 6 million times, so the values at the end grow by one each time; then one gap is
+            // filled alternately until its denominators approach 2^40. Before 2.0.0 this
+            // overflowed 64-bit numerators and left the list unsorted.
+            var q = new DList("Q");
+            q.InsertAfter("r", Marker.Source);
+            string? prev = null;
+            for (int i = 0; i < 6_000_000; i++) {
+                var name = "c" + i;
+                q.InsertBefore(name, Marker.Sink);
+                if (prev != null) q.Remove(prev);
+                prev = name;
+            }
+            var reference = new List<string> { "r", prev! };
+            string left = "r", right = prev!;
+            for (int i = 0; i < 300; i++) {
+                var name = "s" + i;
+                q.InsertAfter(name, left);
+                reference.Insert(reference.IndexOf(left) + 1, name);
+                if (i % 2 == 0) right = name; else left = name;
+            }
+            Seq(q.ToList(), reference.ToArray(), "order after many insertions");
+            for (int i = 1; i < reference.Count; i++)
+                Check(q.Precedes(reference[i - 1], reference[i]), "positions increase along the list");
         }
 
         public static void RandomInserts() {

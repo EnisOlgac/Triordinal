@@ -14,7 +14,11 @@
 - C#: a list cell refers to its owning node as `object` instead of `DNode`, so DList knows nothing of DTree. Projects `csharp/Triordinal.DList`, `csharp/Triordinal.DTree`, `csharp/Triordinal.DTree.Tests`; the benchmark runs as `python -m triordinal.dtree.bench`.
 - Python 3.9 or later (CI tests 3.9, 3.12 and 3.13).
 
-The API is unchanged; only the import, package and project names change. Versions 1.0.0 to 1.8.0 remain in [EnisOlgac/DTree](https://github.com/EnisOlgac/DTree), archived on Zenodo (doi:10.5281/zenodo.23395710), and on PyPI as `dtree-encoding` and NuGet as `DTree.Encoding`.
+**Fixes in DList** (reported in an external review of DTree 1.8.0):
+- C#: 64-bit numerators could overflow. A numerator grows with value times denominator, and values grow with every insertion at an end of the list, deletions never shrinking them; after 6 million insertions at the end, inserting into one gap overflowed, left the cell linked at a wrong position, and the list unsorted. Now a region is also renumbered when a numerator would exceed 2^61, so no mediant can overflow, and a cell is linked only after its position is computed. Python's integers never overflowed.
+- Both languages: the markers SOURCE and SINK can no longer be inserted, moved or removed as names (`insert_before("]", "a")` used to unlink SINK and break the list); this raises `ValueError` / `ArgumentException`.
+
+Apart from these fixes the API is unchanged; only the import, package and project names change. Versions 1.0.0 to 1.8.0 remain in [EnisOlgac/DTree](https://github.com/EnisOlgac/DTree), archived on Zenodo (doi:10.5281/zenodo.23395710), and on PyPI as `dtree-encoding` and NuGet as `DTree.Encoding`.
 
 ## 1.8.0
 
