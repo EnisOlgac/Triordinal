@@ -12,8 +12,15 @@ on:
 
 jobs:
   pypi:
+    # One job per package, each with its own GitHub environment (pypi-dlist, pypi-dtree):
+    # PyPI identifies a trusted publisher by repository, workflow and environment, so each
+    # project needs its own environment.
     runs-on: ubuntu-latest
-    environment: pypi
+    strategy:
+      max-parallel: 1          # triordinal-dlist first, then triordinal-dtree, which needs it
+      matrix:
+        package: [dlist, dtree]
+    environment: pypi-${{ matrix.package }}
     permissions:
       id-token: write          # PyPI Trusted Publishing, no token stored
     steps:
@@ -22,20 +29,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Test
+        working-directory: python/${{ matrix.package }}
+        run: python -m unittest discover -s tests
+      - name: Check version
         run: |
-          (cd python/dlist && python -m unittest discover -s tests)
-          (cd python/dtree && python -m unittest discover -s tests)
-      - name: Check versions
-        run: |
-          for d in dlist dtree; do
-            v=$(python -c "import tomllib; print(tomllib.load(open('python/$d/pyproject.toml','rb'))['project']['version'])")
-            test "v$v" = "${{ github.event.release.tag_name }}" || { echo "python/$d version $v does not match tag ${{ github.event.release.tag_name }}"; exit 1; }
-          done
+          v=$(python -c "import tomllib; print(tomllib.load(open('python/${{ matrix.package }}/pyproject.toml','rb'))['project']['version'])")
+          test "v$v" = "${{ github.event.release.tag_name }}" || { echo "python/${{ matrix.package }} version $v does not match tag ${{ github.event.release.tag_name }}"; exit 1; }
       - name: Build
         run: |
           python -m pip install --upgrade build
-          python -m build python/dlist --outdir dist
-          python -m build python/dtree --outdir dist
+          python -m build python/${{ matrix.package }} --outdir dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
