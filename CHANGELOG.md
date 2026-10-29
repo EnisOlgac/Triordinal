@@ -1,5 +1,7 @@
 # Changelog
 
+All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
+
 ## 2.1.0
 
 The remaining points of Onur Safi's review of DTree 1.8.0, in Python and C#. All packages move to 2.1.0; `triordinal-dtree` 2.1.0 needs `triordinal-dlist` 2.1.0.
@@ -29,8 +31,6 @@ The remaining points of Onur Safi's review of DTree 1.8.0, in Python and C#. All
 
 ## 2.0.0
 
-Archived on Zenodo: doi:10.5281/zenodo.23760809.
-
 **Triordinal continues DTree.** The code of DTree 1.8.0 moves to this repository, split into packages so that DGraph can join later without depending on DTree:
 
 | Package | Python | NuGet | Depends on |
@@ -51,15 +51,11 @@ Apart from these fixes the API is unchanged; only the import, package and projec
 
 ## 1.8.0
 
-Archived on Zenodo: doi:10.5281/zenodo.23685810.
-
 **Inserting siblings at a chosen place** (Python and C#). `insert_after(sibling, child)` / `InsertAfter` puts the new node directly after an existing sibling, `insert_before(sibling, child)` / `InsertBefore` directly before it, with the same parent. Until now a new node always became the last child. Both are two local list insertions, like `insert`: in Q1 after the end of the sibling's subtree (or directly before the sibling), in Q2 directly before the sibling (or after the end of its subtree there). No other node moves, and constructed nodes stay valid. Inserting before a first child walks down the first children in Q2 to find the end of its subtree.
 
 The description format of the `.csx` files gets two new operators, `s > c1; c2` and `s < c1; c2`, next to `p: c1; c2` (suggested by Enis Olgac). `add_line(line)` / `AddLine` applies one such line; `from_file` / `FromFile` and the Tree.View viewer use it.
 
 ## 1.7.0
-
-Archived on Zenodo: doi:10.5281/zenodo.23437422.
 
 **Removing members from a constructed node** (Python and C#). `discard(node)` / `Discard(node)` takes a node out of the set again, and `node in s` / `Contains(node)` tests membership. If the removed node held the minimal (or maximal) position in Q1 or Q2, the remaining members are scanned for the new one, O(k); `UMin` also rebuilds its list of topmost members when one of them is removed. With this, the collapsed nodes of a tree view can be kept as one `UMin` across expand and collapse. Listed as an open point by Enis Olgac.
 
@@ -80,8 +76,6 @@ Measured by Enis Olgac on his NUC (tables in `docs/parent-walk.md`): in the tree
 - The C# benchmarks now print numbers in the invariant format (10,000 and 0.013), like the Python ones, whatever the system's language settings.
 
 ## 1.6.0
-
-Archived on Zenodo: doi:10.5281/zenodo.23434347.
 
 **Node handles in Python.** As in C# since 1.3.0, `insert` returns a `DNode` handle, `get_node(name)` and `try_get_node(name)` give the handle of an existing node, and every method accepts a handle wherever it accepts a name (including the and/or queries). A handle refers directly to the node's positions in Q1 and Q2, so `can_reach` on handles is two position comparisons without any lookup by name; the idea of using addresses as ids comes from Enis Olgac's original implementation, and placing the positions on the vertices was his suggestion. Internally, parents and children are now kept as direct references, so queries by name also got faster (two dictionary lookups instead of six). The name-based API is unchanged.
 
@@ -106,8 +100,6 @@ The top-down comb now builds as fast as the ordinary shapes; with the plain walk
 
 ## 1.5.0
 
-Archived on Zenodo: doi:10.5281/zenodo.23426313.
-
 **Packages.** DTree is now installable from the package managers; the library itself is unchanged.
 
 - Python: `pip install dtree-encoding` (PyPI), imported as `dtree`.
@@ -117,16 +109,12 @@ Archived on Zenodo: doi:10.5281/zenodo.23426313.
 
 ## 1.4.1
 
-Archived on Zenodo: doi:10.5281/zenodo.23421930.
-
 Documentation and benchmarks only; the library is unchanged.
 
 - New benchmark for the dynamic case, insertions and queries alternating (`bench.py --dynamic`, `-- bench dynamic`): DTree against the parent walk over increasing depth, and against static pre/post numbers recomputed after each insertion. On Enis Olgac's NUC (C#, 100,000 nodes, one query per insertion; other processes running, so absolute times are indicative), a step costs DTree 1.6–1.9 µs at every depth; the parent walk takes 0.13 µs at depth 10 and 83 µs at depth 100,000. Static numbers need 2.5 s for 20,000 nodes, against 11 ms for DTree, and grow quadratically. Full tables: [`docs/set-queries.md`](docs/set-queries.md).
 - [`docs/set-queries.md`](docs/set-queries.md): the simpler exact way of comparing with each element of a set (suggested by Enis Olgac), a paragraph on dynamic approaches in the literature (link-cut and Euler-tour trees, dynamic LCA, order maintenance), and the general applicability of DTree as the frame for the measurements.
 
 ## 1.4.0
-
-Archived on Zenodo: doi:10.5281/zenodo.23420472.
 
 **Set queries with constructed nodes** (Python and C#). A constructed node stands for a node set S: the minimum or maximum of each index over S, separately in Q1 and Q2; the two values usually belong to two different members. VMin and VMax take S as the target of reachability, UMin and UMax as the source. The idea and the names VMin and VMax are Enis Olgac's, from his presentation "Topology and Structure of Directed Graphs - Inducing a Subgraph" (ResearchGate, 2021); the naming by role with UMin and UMax is his as well. This release brings them to the tree library.
 
@@ -151,8 +139,6 @@ Archived on Zenodo: doi:10.5281/zenodo.23420472.
 
 ## 1.3.0
 
-Archived on Zenodo: doi:10.5281/zenodo.23414463.
-
 **Node handles in C#** (`DTree.Core`): `Insert` now returns a `DNode` handle, and every operation also accepts handles (`Insert(DNode, string)`, `CanReach(DNode, DNode)`, `Delete`, `DeleteSubtree`, `CutNPaste`, `IsRoot`, `IsLeaf`, `Depth`, …; `GetNode(name)` and `TryGetNode` give the handle of a named node). A handle refers directly to the node's positions in Q1 and Q2, so a reachability test on handles is two position comparisons with no lookup by name. Inside `DTree`, parents and children are kept as direct references, too; names are only looked up where a method receives a name. The idea of using addresses as ids comes from Enis Olgac's original implementation. Handles of deleted nodes, or of another tree, are rejected or reported as unreachable. The name-based API is unchanged.
 
 Reachability on a random tree of 100,000 nodes, 1,000,000 queries (`dotnet run --project csharp/DTree.Tests -c Release -- bench 10000 100000`, same Windows PC as for 1.2.0):
@@ -166,8 +152,6 @@ Reachability on a random tree of 100,000 nodes, 1,000,000 queries (`dotnet run -
 With names, `CanReach` now does two dictionary lookups instead of six; with handles it does none, which makes it about 4× faster than in 1.2.0 and about 16× faster than the Python implementation. Building trees takes as long as in 1.2.0 (random tree of 100,000 nodes: 0.24 s), since every new node is still registered by name; renumbering counts are unchanged.
 
 ## 1.2.0
-
-Archived on Zenodo: doi:10.5281/zenodo.23414087.
 
 **C# implementation** (`csharp/DTree.Core`): a port of the Python 1.1.0 implementation with the same API in C# naming and the same rational (mediant) positions, stored as 64-bit numerator/denominator pairs and compared with 128-bit products. A test program (`csharp/DTree.Tests`) mirrors the Python test suite and includes the benchmark (`-- bench`). The automatic checks now also run the C# tests.
 
@@ -195,8 +179,6 @@ Both implementations renumber identically except in the alternating worst case: 
 
 ## 1.1.0
 
-Archived on Zenodo: doi:10.5281/zenodo.23397159.
-
 **Rational positions in `DList`** (Python). Positions in Q1 and Q2 are now fractions. A new node gets the mediant (a+c)/(b+d) of its two neighbors, so inserting normally moves no other node. Rational positions were Enis Olgac's idea; the mediant construction, the fallback renumbering and the measurements were done with Claude (Anthropic).
 
 Benchmark (`python benchmarks/bench.py 10000 100000`, trees of 100,000 nodes, same machine):
@@ -220,4 +202,4 @@ Other changes since 1.0.0:
 
 ## 1.0.0
 
-First public release: Python implementation (insert, delete, delete_subtree, cut_n_paste, queries), C# prototype with WPF viewer, API reference. Archived on Zenodo: doi:10.5281/zenodo.23395711.
+First public release: Python implementation (insert, delete, delete_subtree, cut_n_paste, queries), C# prototype with WPF viewer, API reference.
