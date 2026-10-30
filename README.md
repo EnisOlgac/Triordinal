@@ -63,16 +63,28 @@ The two implementations use different limits:
 | renumbering when | a denominator would exceed 64 bits | a denominator would exceed 2⁴⁰, or a numerator 2⁶¹ |
 | renumbered positions | k/2³² | k/2²⁰ |
 
+Integer positions are the alternative, chosen per tree (`DTree(..., positions="integer")`, `EulerTree(..., positions="integer")`; in C# `Positions.Integer`) or per list (`DList(name, positions="integer")`). A position is then an integer label in [0, 2⁶²], as in classical order maintenance: a new position is the midpoint of its neighbors' labels, and when no integer is left between them, the smallest surrounding region with enough room is relabeled evenly, with the same density rule as for fractions. Next to SOURCE and SINK there is no unbounded step, so appends at either end and nodes with many children are relabeled every few dozen insertions, which fractions avoid. In return, two integer positions are compared directly, without the multiplications that fractions need.
+
+Which kind to choose (measured in C# on 100,000 nodes; see [`docs/prior-art.md`](docs/prior-art.md)):
+
+| | rational (the default) | integer |
+|---|---|---|
+| queries | slower: two products per comparison | faster: about a third less time |
+| insertions with queries | fast on shallow trees | faster on deep trees |
+| renumberings | fewest in every pattern; none for appends and stars | many more: 10,000 to 22,000 for a star of 100,000 children |
+| range | unbounded at both ends | fixed: [0, 2⁶²] |
+| memory in C# | the same: two 64-bit numbers per position | the same |
+
 ## Comparison with Prior Art
 
-The benchmarks (`python -m triordinal.dtree.bench --prior-art`, `-- bench prior-art`) compare DTree with the Euler tour on one list (same rational positions), with the Euler tour on integer labels, with pre/post numbers recomputed lazily before a query that follows a change, and with the parent walk of a classical tree. All answer the same queries, checked against each other; and/or queries use each encoding's own constructed points. Results: [`docs/prior-art.md`](docs/prior-art.md).
+The benchmarks (`python -m triordinal.dtree.bench --prior-art`, `-- bench prior-art`) compare DTree with the Euler tour on one list, with rational, integer, double and decimal positions, with pre/post numbers recomputed lazily before a query that follows a change, and with the parent walk of a classical tree. All answer the same queries, checked against each other; and/or queries use each encoding's own constructed points. A second section (`--euler`, `-- bench euler`) compares DTree and EulerTree, each with rational and with integer positions. Results: [`docs/prior-art.md`](docs/prior-art.md).
 
 ## Key Features
 
 - Two encodings of a tree with the same API: `DTree` on two lists, `Q1` and `Q2`, and `EulerTree` on one list (`Q1` with its closing cells, the Euler tour), which is faster and smaller for trees
 - Rational positions (the default) or integer positions (`positions="integer"`), the user's choice
 - Single-rooted directed tree; no aliasing, no duplicate nodes
-- Reachability check in O(1) via positions in `Q1` and `Q2`
+- Reachability check in O(1) via positions in `Q1` and `Q2` (`DTree`) or in `Q1` alone (`EulerTree`)
 - Insertion in O(1): the end of every subtree is marked by a closing cell (plus the occasional local renumbering)
 - Dynamic operations: `insert`, `delete` (children move up), `delete_subtree`, `cut_n_paste` (move a subtree)
 - Structural queries: ancestry, depth, paths, subtrees
