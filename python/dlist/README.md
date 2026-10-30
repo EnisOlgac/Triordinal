@@ -15,7 +15,7 @@ q.insert_after("b", "a")
 q.precedes("a", "b")          # True
 ```
 
-A new element gets the mediant (a+c)/(b+d) of its neighbors a/b and c/d, so normally no other element moves. Only when a denominator would exceed 64 bits is the smallest surrounding region with enough room renumbered; larger regions must be sparser before they are accepted (as in Bender et al., ESA 2002). Rational positions were Enis Olgac's idea.
+A new element gets the mediant (a+c)/(b+d) of its neighbors a/b and c/d, so normally no other element moves. Only when a mediant cannot be stored, its denominator or numerator exceeding 2⁶¹ (the bound of the C# version, so that both renumber alike), is the smallest surrounding region with enough room renumbered with fractions k/2²⁰; larger regions must be sparser before they are accepted (as in Bender et al., ESA 2002). A block of cells that is cut and pasted elsewhere is placed as a whole and renumbers a region only if it does not fit. Rational positions were Enis Olgac's idea.
 
 `DList("Q", positions="integer")` gives integer positions instead: midpoints in [0, 2⁶²], as in classical order maintenance, relabeled with the same density rule. They are faster to compare; rational positions are renumbered far less often.
 

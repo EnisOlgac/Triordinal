@@ -10,6 +10,7 @@ where ``python benchmarks/bench.py`` does the same):
     python -m triordinal.dtree.bench --review        # only the patterns from the review of 1.8.0
     python -m triordinal.dtree.bench --prior-art     # only the comparison with prior art
     python -m triordinal.dtree.bench --euler         # only DTree against EulerTree, by kind of position
+    python -m triordinal.dtree.bench --moves         # only moving subtrees (cut_n_paste)
     python -m triordinal.dtree.bench --note "idle machine after restart"   # remark for the report
     python -m triordinal.dtree.bench --no-save       # do not write a report
 
@@ -875,7 +876,7 @@ def bench_positions(n_build, n_dyn, depths):
     kinds = [k for k, _, _ in _POSITION_KINDS]
     print("\n### Kinds of positions\n")
     print("The same Euler tour on one list with four kinds of position: rational (DList: mediants, a "
-          "region is renumbered when a denominator would exceed 64 bits); integer, as in classical order "
+          "region is renumbered when a denominator or numerator would exceed 2**61); integer, as in classical order "
           "maintenance (midpoints in [0, 2^62], a region is relabeled when no integer is left between two "
           "neighbors); and floating point, binary (float, as C#'s double) or decimal (28 significant "
           "digits, as C#'s decimal): midpoints, one unit beyond the neighbor next to SOURCE or SINK as with "
@@ -1102,6 +1103,45 @@ def bench_euler(n_build, n_dyn, depths, set_n, set_depth, k, queries):
         del t
 
 
+def bench_moves(sizes, moves):
+    """Random subtrees moved to random new parents (cut_n_paste), in DTree and EulerTree with both kinds
+    of position. Legal moves are chosen with the tree's own can_reach (two comparisons), outside the
+    timing; only the cut_n_paste calls are timed."""
+    print(f"\n### Moving subtrees\n")
+    print(f"A random tree is built, then {moves:,} times a random node (not the root) is moved with its "
+          "subtree to a random new parent outside that subtree. Since 2.3.0 a moved subtree is placed "
+          "as one block; a block that fits into its gap is a fitted paste, otherwise a region is "
+          "renumbered. Counts are for the moves only, per list (Q1 / Q2).\n")
+    row("tree", "positions", "nodes", "µs per move", "renumberings", "positions renumbered per move", "fitted pastes")
+    row("---", "---", "---:", "---:", "---:", "---:", "---:")
+    from triordinal.dtree.euler import EulerTree
+    for kind, make in (("DTree", DTree), ("EulerTree", EulerTree)):
+        for positions in ("rational", "integer"):
+            for n in sizes:
+                rnd = random.Random(9)
+                t = make("M", positions=positions)
+                for i in range(1, n):
+                    t.insert(f"n{rnd.randrange(i)}", f"n{i}")
+                handles = [t.get_node(f"n{i}") for i in range(n)]
+                lists = [t.Q1] if kind == "EulerTree" else [t.Q1, t.Q2]
+                count0 = [q.renumber_count for q in lists]
+                moved0 = sum(q.renumber_moved for q in lists)
+                paste0 = sum(getattr(q, "paste_count", 0) for q in lists)
+                done, spent = 0, 0.0
+                while done < moves:
+                    u, p = handles[rnd.randrange(1, n)], handles[rnd.randrange(n)]
+                    if u is p or t.can_reach(u, p):
+                        continue                                    # p lies in u's subtree
+                    start = time.perf_counter()
+                    t.cut_n_paste(u, p)
+                    spent += time.perf_counter() - start
+                    done += 1
+                counts = " / ".join(f"{q.renumber_count - c:,}" for q, c in zip(lists, count0))
+                moved = (sum(q.renumber_moved for q in lists) - moved0) / moves
+                pastes = sum(getattr(q, "paste_count", 0) for q in lists) - paste0
+                row(kind, positions, f"{n:,}", f"{spent * 1e6 / moves:.2f}", counts, f"{moved:.1f}", f"{pastes:,}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sizes", nargs="*", type=int, help="tree sizes (default: 10000 100000)")
@@ -1110,6 +1150,7 @@ def main():
     ap.add_argument("--review", action="store_true", help="only the patterns from the review of 1.8.0")
     ap.add_argument("--prior-art", action="store_true", help="only the comparison with prior art")
     ap.add_argument("--euler", action="store_true", help="only DTree against EulerTree, by kind of position")
+    ap.add_argument("--moves", action="store_true", help="only moving subtrees (cut_n_paste)")
     ap.add_argument("--note", default="", help="remark written into the report (e.g. machine state)")
     ap.add_argument("--no-save", action="store_true", help="do not write a Markdown report")
     args = ap.parse_args()
@@ -1128,7 +1169,18 @@ def main():
             print(f"\nReport written to {os.path.relpath(path, REPO)}")
 
 
+def _moves(quick):
+    if quick:
+        bench_moves([2_000, 10_000], 2_000)
+    else:
+        bench_moves([10_000, 100_000], 20_000)
+
+
 def run(args):
+    if args.moves:
+        print(f"DTree benchmarks, Python {sys.version.split()[0]}")
+        _moves(args.quick)
+        return
     if args.euler:
         print(f"DTree benchmarks, Python {sys.version.split()[0]}")
         _euler(args.quick)
@@ -1168,6 +1220,7 @@ def run(args):
     _review(args.quick)
     _prior_art(args.quick)
     _euler(args.quick)
+    _moves(args.quick)
 
 
 def _euler(quick):

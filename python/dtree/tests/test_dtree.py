@@ -608,6 +608,21 @@ class TestAgainstReference(unittest.TestCase):
                     ref.move(u, p)
                 check(self, t, ref)
 
+    def test_many_moves_are_placed_as_blocks(self):
+        # 2.3.0: a moved subtree is placed as one block; most blocks fit into their gap
+        t, ref, rnd = random_tree(300, 7)
+        nodes = [n for n in ref.nodes() if n != ref.root]
+        for _ in range(1500):
+            u = rnd.choice(nodes)
+            banned = set(t.subtree(u))
+            p = rnd.choice([n for n in ref.nodes() if n not in banned])
+            t.cut_n_paste(u, p)
+            ref.move(u, p)
+        check(self, t, ref)
+        lists = [t.Q1] if not hasattr(t, "Q2") else [t.Q1, t.Q2]
+        for q in lists:
+            self.assertGreater(q.paste_count, q.renumber_count)
+
 
 class TestSiblingInsert(unittest.TestCase):
     def test_example(self):

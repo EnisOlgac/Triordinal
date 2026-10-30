@@ -152,4 +152,4 @@ Renumberings while building trees of 100,000 nodes:
 | alternating | 5,713 | 23,831 | 27,987 | 29,040 |
 | top-down comb | 206 | 6,475 | 7,700 | 5,679 |
 
-C# renumbers rational positions earlier than Python (denominators above 2⁴⁰ instead of 2⁶⁴), hence its higher counts for the chain. The placement rules (midpoint against the List.cs rule in base 2 and 10, for integer, double and decimal) are in the second report.
+Up to 2.2.0, C# renumbered rational positions earlier than Python (denominators above 2⁴⁰ instead of 2⁶⁴), hence its higher counts for the chain; since 2.3.0 both renumber only when a denominator or numerator would exceed 2⁶¹. The placement rules (midpoint against the List.cs rule in base 2 and 10, for integer, double and decimal) are in the second report.

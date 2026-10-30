@@ -58,6 +58,9 @@ namespace DirectedTrees {
         /// <summary>How many positions renumbering changed in total (closing cells included).</summary>
         public long RenumberMoved => _list.RenumberMoved;
 
+        /// <summary>How many pasted blocks (CutNPaste) fitted into their gap without renumbering.</summary>
+        public long PasteCount => _list.PasteCount;
+
         public bool Contains(string name) => _list.Contains(name);
         public bool IsAllocated(string name) => _list.IsAllocated(name);
         public bool IsNotAllocated(string name) => _list.IsNotAllocated(name);
@@ -426,8 +429,8 @@ namespace DirectedTrees {
             if (u.Up == _source) throw new InvalidOperationException("the root cannot be moved");
             if (newParent == u || Reach(u, newParent))
                 throw new InvalidOperationException("newParent lies inside the subtree being moved");
-            var block1 = _q1.CutBlockCells(u.C1, End1(u));
-            var block2 = Single ? null : _q2!.CutBlockCells(u.C2, End2(u));
+            var block1 = _q1.CutBlockCells(u.C1, End1(u), forget: false);
+            var block2 = Single ? null : _q2!.CutBlockCells(u.C2, End2(u), forget: false);
             var old = u.Up!;
             old.Kids!.Remove(u);
             if (old.Kids.Count == 0) {

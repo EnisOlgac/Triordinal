@@ -45,8 +45,14 @@ namespace DirectedTrees.Tests {
                 ("DList: markers cannot be inserted, moved or removed", Tests.DListMarkers),
                 ("DList: many end insertions, then one gap (no overflow)", Tests.DListNoOverflow),
                 ("DList: unnamed cells are invisible by name", Tests.DListUnnamedCells),
+                ("DList: pasted blocks keep the order (random moves)", Tests.DListRandomBlockMoves),
+                ("DList: integer block shifted, spread or renumbered", Tests.DListIntegerPaste),
+                ("DList: rational block gets the chain of mediants", Tests.DListRationalPaste),
+                ("DList: renumbering only when a mediant cannot be stored", Tests.DListLazyRenumbering),
+                ("DList: same positions as the Python reference", Tests.DListParityWithPython),
                 ("random inserts vs reference", Tests.RandomInserts),
                 ("random deletes and moves vs reference", Tests.RandomDeletesAndMoves),
+                ("many moves are placed as blocks", Tests.ManyMovesArePlacedAsBlocks),
                 ("deep chain", Tests.DeepChain),
                 ("wide node", Tests.WideNode),
                 ("star needs no renumbering", Tests.StarNeedsNoRenumbering),
@@ -485,7 +491,7 @@ namespace DirectedTrees.Tests {
         public static void DListNoOverflow() {
             // The reviewer's pattern: a child is added at the end and the previous one deleted,
             // 6 million times, so the values at the end grow by one each time; then one gap is
-            // filled alternately until its denominators approach 2^40. Before 2.0.0 this
+            // filled alternately until its denominators approach 2^61. Before 2.0.0 this
             // overflowed 64-bit numerators and left the list unsorted.
             var q = new DList("Q");
             q.InsertAfter("r", Marker.Source);
@@ -507,6 +513,130 @@ namespace DirectedTrees.Tests {
             Seq(q.ToList(), reference.ToArray(), "order after many insertions");
             for (int i = 1; i < reference.Count; i++)
                 Check(q.Precedes(reference[i - 1], reference[i]), "positions increase along the list");
+        }
+
+        // -- 2.3.0: pasted blocks and renumbering only when needed ---------------------------------
+
+        private static void Move(DList q, string first, string last, string anchor) =>
+            q.PasteCellsAfter(q.CutBlockCells(q.CellOf(first), q.CellOf(last), forget: false), q.CellOf(anchor));
+
+        public static void DListRandomBlockMoves() {
+            foreach (var kind in new[] { Positions.Rational, Positions.Integer }) {
+                var rnd = new Random(4);
+                var q = new DList("Q", kind);
+                var reference = Enumerable.Range(0, 300).Select(i => $"v{i}").ToList();
+                foreach (var n in reference) q.InsertBefore(n, Marker.Sink);
+                for (int step = 0; step < 2000; step++) {
+                    int i = rnd.Next(reference.Count);
+                    int j = Math.Min(reference.Count - 1, i + new[] { 0, 0, 1, 3, 20 }[rnd.Next(5)]);
+                    var block = reference.GetRange(i, j - i + 1);
+                    var rest = reference.Take(i).Concat(reference.Skip(j + 1)).ToList();
+                    int k = rnd.Next(rest.Count + 1);                  // paste after rest[k - 1], or after SOURCE
+                    var cells = q.CutBlockCells(q.CellOf(block[0]), q.CellOf(block[^1]), forget: false);
+                    q.PasteCellsAfter(cells, k == 0 ? q.FirstCell : q.CellOf(rest[k - 1]));
+                    reference = rest.Take(k).Concat(block).Concat(rest.Skip(k)).ToList();
+                    if (!q.PositionsStrictlyIncrease()) { Check(false, $"{kind}: positions increase"); return; }
+                }
+                Seq(q.ToList(), reference, $"{kind}: order after 2000 block moves");
+                Check(q.PasteCount > 0, $"{kind}: blocks fitted");
+            }
+        }
+
+        public static void DListIntegerPaste() {
+            var q = new DList("Q", Positions.Integer);
+            for (int i = 0; i < 10; i++) q.InsertBefore($"v{i}", Marker.Sink);   // appends halve the gap to SINK
+            var inner = new[] { 7, 8, 9 }.Select(i => q.CellOf($"v{i}").Num).ToArray();
+            Move(q, "v7", "v9", "v0");                                      // the gap from v0 to v1 is the widest
+            var moved = new[] { 7, 8, 9 }.Select(i => q.CellOf($"v{i}").Num).ToArray();
+            Check(inner[1] - inner[0] == moved[1] - moved[0] && inner[2] - inner[1] == moved[2] - moved[1], "shifted block keeps its spacing");
+            Check(q.CellOf("v0").Num < moved[0] && moved[2] < q.CellOf("v1").Num, "shifted into the gap");
+            Equal((q.PasteCount, q.RenumberCount), (1L, 0L), "shift: fitted, no renumbering");
+
+            var r = new DList("R", Positions.Integer);
+            foreach (var n in new[] { "a", "b", "c", "d", "e", "f" }) r.InsertBefore(n, Marker.Sink);
+            r.CellOf("b").Num = r.CellOf("a").Num + 4;                      // three free labels after a
+            Move(r, "c", "e", "a");                                         // span too wide, three cells: spread
+            Seq(r.ToList(), new[] { "a", "c", "d", "e", "b", "f" }, "spread: order");
+            Seq(new[] { "c", "d", "e" }.Select(n => r.CellOf(n).Num - r.CellOf("a").Num), new[] { 1L, 2L, 3L }, "spread evenly");
+            Equal((r.PasteCount, r.RenumberCount), (1L, 0L), "spread: fitted, no renumbering");
+            Move(r, "e", "b", "a");                                         // no room for two more: renumber
+            Seq(r.ToList(), new[] { "a", "e", "b", "c", "d", "f" }, "renumbered: order");
+            Check(r.PositionsStrictlyIncrease(), "renumbered: positions increase");
+            Equal((r.PasteCount, r.RenumberCount), (1L, 1L), "renumbered once");
+        }
+
+        public static void DListRationalPaste() {
+            var q = new DList("Q");
+            for (int i = 0; i < 6; i++) q.InsertBefore($"v{i}", Marker.Sink);
+            Move(q, "v1", "v3", "v4");
+            var a = q.CellOf("v4");
+            var c = q.CellOf("v5");
+            var names = new[] { "v1", "v2", "v3" };
+            for (int j = 1; j <= 3; j++) {
+                var x = q.CellOf(names[j - 1]);
+                Equal((x.Num, x.Den), (a.Num + j * c.Num, a.Den + j * c.Den), $"cell {j}: (a + jc)/(b + jd)");
+            }
+            Equal((q.PasteCount, q.RenumberCount), (1L, 0L), "fitted, no renumbering");
+        }
+
+        public static void DListLazyRenumbering() {
+            var q = new DList("Q");
+            q.InsertBefore("a", Marker.Sink);
+            q.InsertBefore("b", Marker.Sink);
+            var a = q.CellOf("a");
+            var b = q.CellOf("b");
+            a.Num = 1; a.Den = 1L << 61;                                    // stored, but a mediant with b would exceed 2^61
+            b.Num = 1; b.Den = 1;
+            q.InsertAfter("x", "b");
+            Equal(q.RenumberCount, 0L, "elsewhere: stored, nothing renumbered");
+            q.InsertAfter("y", "a");
+            Equal(q.RenumberCount, 1L, "renumbered when the mediant cannot be stored");
+            Seq(q.ToList(), new[] { "a", "y", "b", "x" }, "order");
+            Check(q.PositionsStrictlyIncrease() && q.MaxDenominator() <= 1L << 61, "positions increase, bounded");
+
+            var r = new DList("R");
+            r.InsertBefore("L", Marker.Sink);
+            r.InsertBefore("R", Marker.Sink);
+            string left = "L";
+            long top = 0;
+            for (int i = 0; i < 200 && r.RenumberCount == 0; i++) {
+                r.InsertAfter($"x{i}", left);
+                if (i % 2 == 1) left = $"x{i}";
+                top = Math.Max(top, r.CellOf($"x{i}").Den);
+            }
+            Equal(r.RenumberCount, 1L, "alternating: one renumbering");
+            Check(top > (1L << 59), "denominators grew close to 2^61 first");
+        }
+
+        public static void DListParityWithPython() {
+            // The same operations as in the Python reference (2.3.0); the expected numbers were
+            // computed there. Both languages use the same bounds and must give identical positions.
+            var expected = new Dictionary<Positions, (long Renumber, long Paste, (long, long)[] Cells)> {
+                [Positions.Rational] = (4, 3, new[] { (46137494L, 1048576L), (46137569L, 1048576L), (39845888L, 1048576L), (46137386L, 1048576L), (18874368L, 1048576L) }),
+                [Positions.Integer] = (24, 3, new[] { (4443551722523069585L, 1L), (4443551722524076032L, 1L), (2690337827400450048L, 1L), (4443528266296334336L, 1L), (2690150177441841152L, 1L) }),
+            };
+            foreach (var kind in new[] { Positions.Rational, Positions.Integer }) {
+                var q = new DList("Q", kind);
+                q.InsertBefore("L", Marker.Sink);
+                q.InsertBefore("R", Marker.Sink);
+                string left = "L";
+                for (int i = 0; i < 300; i++) {
+                    q.InsertAfter($"x{i}", left);
+                    if (i % 2 == 1) left = $"x{i}";
+                }
+                void Mv(int i, int j, string anchor) {
+                    var names = q.ToList();
+                    q.PasteCellsAfter(q.CutBlockCells(q.CellOf(names[i]), q.CellOf(names[j]), forget: false), q.CellOf(anchor));
+                }
+                Mv(10, 13, "L");
+                Mv(50, 80, "R");
+                Mv(1, 200, q.ToList()[^1]);
+                var e = expected[kind];
+                Equal((q.RenumberCount, q.PasteCount), (e.Renumber, e.Paste), $"{kind}: renumberings and fitted pastes");
+                Seq(new[] { "x299", "x150", "x10", "x13", "x50" }.Select(n => (q.CellOf(n).Num, q.CellOf(n).Den)), e.Cells, $"{kind}: positions");
+                Seq(q.ToList().Take(4), new[] { "L", "x136", "x134", "x132" }, $"{kind}: first cells");
+                Seq(q.ToList().TakeLast(3), new[] { "x142", "x140", "x138" }, $"{kind}: last cells");
+            }
         }
 
         public static void DListUnnamedCells() {
@@ -536,6 +666,22 @@ namespace DirectedTrees.Tests {
                 var (t, r, rnd) = RandomTree(60, seed);
                 CheckAgainst(t, r, rnd);
             }
+        }
+
+        public static void ManyMovesArePlacedAsBlocks() {
+            // 2.3.0: a moved subtree is placed as one block; most blocks fit into their gap
+            var (t, r, rnd) = RandomTree(300, 7);
+            var nodes = r.Nodes().Where(n => n != r.Root).ToList();
+            for (int step = 0; step < 1500; step++) {
+                var u = nodes[rnd.Next(nodes.Count)];
+                var banned = new HashSet<string>(t.Subtree(u));
+                var targets = r.Nodes().Where(n => !banned.Contains(n)).ToList();
+                var p = targets[rnd.Next(targets.Count)];
+                t.CutNPaste(u, p);
+                r.Move(u, p);
+            }
+            CheckAgainst(t, r, rnd);
+            foreach (var q in Lists(t)) Check(q.PasteCount > q.RenumberCount, $"{q.Name}: more fitted pastes than renumberings");
         }
 
         public static void RandomDeletesAndMoves() {
@@ -577,7 +723,7 @@ namespace DirectedTrees.Tests {
             // a chain nests every new node into the gap of its parent: renumbering keeps the
             // positions strictly increasing and the denominators bounded
             Check(Lists(t).All(q => q.PositionsStrictlyIncrease()), "positions increase");
-            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 40), "denominators bounded");
+            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 61), "denominators bounded");
         }
 
         public static void WideNode() {
@@ -610,7 +756,7 @@ namespace DirectedTrees.Tests {
             Check(Lists(t).Sum(q => q.RenumberCount) > 0, "alternating insertions force renumbering");
             Check(t.Q1.PositionsStrictlyIncrease(), "Q1 positions increase");
             Check(Lists(t).All(q => q.PositionsStrictlyIncrease()), "positions increase");
-            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 40), "denominators bounded");
+            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 61), "denominators bounded");
         }
 
         public static void GrowthAtBothEnds() {
@@ -1567,7 +1713,7 @@ namespace DirectedTrees.Tests {
         public static void RunBench(string[] args) {
             // Same number format as the Python report (10,000 and 0.013), whatever the system's culture.
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            bool save = true, dynamic = false, review = false, priorArt = false, euler = false;
+            bool save = true, dynamic = false, review = false, priorArt = false, euler = false, moves = false;
             string note = "";
             var sizes = new List<int>();
             for (int i = 0; i < args.Length; i++) {
@@ -1577,6 +1723,7 @@ namespace DirectedTrees.Tests {
                 else if (args[i] == "review") review = true;
                 else if (args[i] == "prior-art") priorArt = true;
                 else if (args[i] == "euler") euler = true;
+                else if (args[i] == "moves") moves = true;
                 else sizes.Add(int.Parse(args[i], CultureInfo.InvariantCulture));
             }
             var started = DateTime.Now;
@@ -1584,7 +1731,8 @@ namespace DirectedTrees.Tests {
             var tee = save ? new Tee(console) : null;
             if (tee != null) System.Console.SetOut(tee);
             try {
-                if (euler) Bench.RunEuler();
+                if (moves) Bench.RunMoves();
+                else if (euler) Bench.RunEuler();
                 else if (priorArt) Bench.RunPriorArt();
                 else if (review) Bench.RunReview();
                 else if (dynamic) Bench.RunDynamic();
@@ -1703,6 +1851,50 @@ namespace DirectedTrees.Tests {
             Positions();
             PlacementRules();
             EulerTrees();
+            Moves(new[] { 10_000, 100_000 }, 20_000);
+        }
+
+        public static void RunMoves() {
+            Console.WriteLine($"DTree benchmarks (C#, .NET {Environment.Version})");
+            Moves(new[] { 10_000, 100_000 }, 20_000);
+        }
+
+        /// <summary>
+        /// Random subtrees moved to random new parents (CutNPaste), in DTree and EulerTree with both kinds
+        /// of position. Legal moves are chosen with the tree's own CanReach (two comparisons), outside the
+        /// timing; only the CutNPaste calls are timed.
+        /// </summary>
+        private static void Moves(int[] sizes, int moves) {
+            Console.WriteLine("\n### Moving subtrees\n");
+            Console.WriteLine($"A random tree is built, then {moves:N0} times a random node (not the root) is moved with its subtree to a random new parent outside that subtree. Since 2.3.0 a moved subtree is placed as one block; a block that fits into its gap is a fitted paste, otherwise a region is renumbered. Counts are for the moves only, per list (Q1 / Q2).\n");
+            Console.WriteLine("| tree | positions | nodes | µs per move | renumberings | positions renumbered per move | fitted pastes |");
+            Console.WriteLine("| --- | --- | ---: | ---: | ---: | ---: | ---: |");
+            foreach (var (name, make) in Trees)
+                foreach (var n in sizes) {
+                    var rnd = new Random(9);
+                    var t = make("M");
+                    for (int i = 1; i < n; i++) t.Insert($"n{rnd.Next(i)}", $"n{i}");
+                    var handles = new DNode[n];
+                    for (int i = 0; i < n; i++) handles[i] = t.GetNode($"n{i}");
+                    var lists = t.List2 is DList q2 ? new[] { t.List1, q2 } : new[] { t.List1 };
+                    var count0 = lists.Select(q => q.RenumberCount).ToArray();
+                    long moved0 = lists.Sum(q => q.RenumberMoved), paste0 = lists.Sum(q => q.PasteCount);
+                    long ticks = 0;
+                    for (int done = 0; done < moves;) {
+                        DNode u = handles[rnd.Next(1, n)], p = handles[rnd.Next(n)];
+                        if (u == p || t.CanReach(u, p)) continue;          // p lies in u's subtree
+                        long start = Stopwatch.GetTimestamp();
+                        t.CutNPaste(u, p);
+                        ticks += Stopwatch.GetTimestamp() - start;
+                        done++;
+                    }
+                    var counts = string.Join(" / ", lists.Select((q, k) => (q.RenumberCount - count0[k]).ToString("N0")));
+                    double moved = (lists.Sum(q => q.RenumberMoved) - moved0) / (double)moves;
+                    long pastes = lists.Sum(q => q.PasteCount) - paste0;
+                    double us = ticks * 1e6 / Stopwatch.Frequency / moves;
+                    var parts = name.Split(", ");
+                    Console.WriteLine($"| {parts[0]} | {parts[1]} | {n:N0} | {us:F2} | {counts} | {moved:F1} | {pastes:N0} |");
+                }
         }
 
         public static void RunEuler() {
@@ -2125,7 +2317,7 @@ namespace DirectedTrees.Tests {
             RunEulerNum<double>(Workload(1_000, 10, 1));
             RunEulerNum<decimal>(Workload(1_000, 10, 1));
             Console.WriteLine("\nKinds of positions\n");
-            Console.WriteLine("The same Euler tour on one list with four kinds of position: rational (DList: mediants, a region is renumbered when a denominator would exceed 2^40 or a numerator 2^61); integer, as in classical order maintenance (midpoints in [0, 2^62], a region is relabeled when no integer is left between two neighbors); double (midpoints); and decimal (the left neighbor plus half the gap rounded at its most significant digit, as in the original List.cs). Next to SOURCE or SINK, double and decimal step one unit outward, as rationals do. All renumber with the same density rule, so only the kind of position differs.\n");
+            Console.WriteLine("The same Euler tour on one list with four kinds of position: rational (DList: mediants, a region is renumbered when a denominator or numerator would exceed 2^61); integer, as in classical order maintenance (midpoints in [0, 2^62], a region is relabeled when no integer is left between two neighbors); double (midpoints); and decimal (the left neighbor plus half the gap rounded at its most significant digit, as in the original List.cs). Next to SOURCE or SINK, double and decimal step one unit outward, as rationals do. All renumber with the same density rule, so only the kind of position differs.\n");
             Console.WriteLine($"Building trees ({nBuild:N0} nodes): seconds, and renumberings\n");
             Console.WriteLine("| shape | " + string.Join(" | ", Kinds.Select(k => k + " [s]")) + " | " + string.Join(" | ", Kinds.Select(k => "renumberings " + k)) + " |");
             Console.WriteLine("| --- |" + string.Concat(Enumerable.Repeat(" ---: |", 2 * Kinds.Length)));

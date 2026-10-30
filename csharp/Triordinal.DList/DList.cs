@@ -22,15 +22,20 @@ namespace Triordinal {
     /// <remarks>
     /// A position is a fraction Num/Den. A new node gets the mediant (a+c)/(b+d) of its
     /// neighbors a/b and c/d, which always lies strictly between them; SOURCE and SINK act
-    /// as -1/0 and +1/0. Nothing else moves. Only when a denominator would exceed 2^40 is a
-    /// small surrounding region renumbered with simple fractions k/2^20, larger regions being
-    /// required to be sparser (as in Bender et al., ESA 2002). Rational positions were Enis
-    /// Olgac's idea; this C# version follows the Python reference implementation (1.1.0).
-    /// Positions are 64-bit (Num, Den) pairs compared with 128-bit products. A numerator grows
-    /// with value times denominator, and values grow with every insertion at an end of the list
-    /// (deletions never shrink them), so a region is also renumbered when a numerator would
-    /// exceed 2^61. Every mediant is then the sum of two numerators below 2^61 and cannot
-    /// overflow, and a cell is linked only after its position has been computed.
+    /// as -1/0 and +1/0. Nothing else moves. Rational positions were Enis Olgac's idea; this C#
+    /// version follows the Python reference implementation. Positions are 64-bit (Num, Den)
+    /// pairs compared with 128-bit products. Only when a mediant cannot be stored, because its
+    /// denominator or the size of its numerator would exceed 2^61, is a small surrounding region
+    /// renumbered with simple fractions k/2^20, larger regions being required to be sparser (as
+    /// in Bender et al., ESA 2002). Every mediant is the sum of two numbers of at most 2^61 and
+    /// cannot overflow, and every cross product stays below 2^123. Python uses the same bounds,
+    /// so both renumber at the same moments.
+    /// A block of cells that is cut and pasted elsewhere (DTree's CutNPaste) is placed as a
+    /// whole: with integer positions it is shifted, keeping its spacing, when its span fits into
+    /// the gap, and otherwise spread evenly over the gap; with rational positions its j-th cell
+    /// gets (a + jc)/(b + jd) between a/b and c/d, the positions that linking the cells one
+    /// after another would give, checked at once. Only a block that does not fit renumbers a
+    /// region around it.
     /// With Positions.Integer, a position is an integer label in [0, 2^62] (Den 1): a new cell gets the
     /// midpoint of its neighbors' labels, and when no integer is left between them the smallest
     /// surrounding region with enough room is relabeled evenly, with the same density rule. In the
@@ -42,8 +47,7 @@ namespace Triordinal {
     /// </remarks>
     public sealed class DList : IEnumerable<string> {
         private const long Q = 1L << 20;        // denominator used when a region is renumbered
-        private const long Limit = 1L << 40;    // renumber when a denominator would exceed this
-        private const long NumLimit = 1L << 61; // ... or a numerator; two such numerators sum below 2^62
+        private const long Limit = 1L << 61;    // largest denominator and numerator size a position may have
         private const double Slack = 16.0;      // minimum spacing (in 1/Q) after renumbering
         private const double Growth = 2.0;      // each doubling of the region raises the spacing
         private const long U = 1L << 62;        // integer positions: SOURCE has label 0, SINK label U
@@ -93,6 +97,9 @@ namespace Triordinal {
         /// <summary>How many positions were changed by renumbering in total.</summary>
         public long RenumberMoved { get; private set; }
 
+        /// <summary>How many pasted blocks (DTree's CutNPaste) fitted into their gap without renumbering.</summary>
+        public long PasteCount { get; private set; }
+
         /// <summary>Number of nodes, without the markers.</summary>
         public int Count => _cells.Count - 2;
 
@@ -139,7 +146,7 @@ namespace Triordinal {
                     cell.Num = prev.Num + (g >> 1);                 // the midpoint
                     cell.Den = 1;
                 } else {
-                    RebalanceInteger(cell);
+                    RebalanceInteger(cell, cell, 1);
                 }
                 return;
             }
@@ -148,9 +155,10 @@ namespace Triordinal {
                 num = 0; den = 1;
             } else {
                 // Mediant of the neighbors. Next to SOURCE (-1/0) or SINK (+1/0) this steps by one
-                // whole unit, so a list can grow at either end without renumbering. Computed
-                // before the cell is linked: |Num| <= 2^61 and Den <= 2^40 for every linked cell,
-                // so the sums cannot overflow; checked all the same.
+                // whole unit, so a list can grow at either end without renumbering. |Num| <= 2^61
+                // and Den <= 2^61 for every linked cell, so the sums cannot overflow; checked all
+                // the same. Renumbering only when the mediant cannot be stored: nothing is done
+                // in advance.
                 checked {
                     num = prev.Num + nxt.Num;
                     den = prev.Den + nxt.Den;
@@ -162,13 +170,16 @@ namespace Triordinal {
             nxt.Prev = cell;
             cell.Num = num;
             cell.Den = den;
-            if (den > Limit || num > NumLimit || num < -NumLimit) Rebalance(cell);
+            if (den > Limit || num > Limit || num < -Limit) Rebalance(cell, cell, 1);
         }
 
-        /// <summary>Relabel the smallest region around cell that has room, evenly (integer positions).</summary>
-        private void RebalanceInteger(Cell cell) {
-            Cell lo = cell, hi = cell, left, right;
-            long m = 1, room;
+        /// <summary>
+        /// Relabel the smallest region around the m linked cells lo..hi that has room, evenly
+        /// (integer positions). The region starts one cell wider on each side and grows from there.
+        /// </summary>
+        private void RebalanceInteger(Cell lo, Cell hi, long m) {
+            Cell left, right;
+            long room;
             int k = 1;
             double need = Slack;
             while (true) {
@@ -200,10 +211,12 @@ namespace Triordinal {
             cell.Prev = cell.Next = null;
         }
 
-        /// <summary>Renumber the smallest region around cell that has room, using fractions k/Q.</summary>
-        private void Rebalance(Cell cell) {
-            Cell lo = cell, hi = cell;
-            int m = 1, k = 1;
+        /// <summary>
+        /// Renumber the smallest region around the m linked cells lo..hi that has room, using
+        /// fractions k/Q. The region starts one cell wider on each side and grows from there.
+        /// </summary>
+        private void Rebalance(Cell lo, Cell hi, int m) {
+            int k = 1;
             double need = Slack;
             long[] ks;
             while (true) {
@@ -290,8 +303,12 @@ namespace Triordinal {
             if (cell.Name != null) _cells.Remove(cell.Name);
         }
 
-        /// <summary>Remove the contiguous block a..b and return its cells in order.</summary>
-        internal List<Cell> CutBlockCells(Cell a, Cell b) {
+        /// <summary>
+        /// Remove the contiguous block a..b and return its cells in order. With forget their names
+        /// are removed from the list; otherwise they stay registered, to be pasted again with
+        /// PasteCellsAfter (a move).
+        /// </summary>
+        internal List<Cell> CutBlockCells(Cell a, Cell b, bool forget = true) {
             var cells = new List<Cell>();
             for (var c = a; ; c = c.Next!) {
                 cells.Add(c);
@@ -301,17 +318,82 @@ namespace Triordinal {
             b.Next!.Prev = a.Prev;
             a.Prev = null;
             b.Next = null;
-            foreach (var c in cells) if (c.Name != null) _cells.Remove(c.Name);
+            if (forget)
+                foreach (var c in cells) if (c.Name != null) _cells.Remove(c.Name);
             return cells;
         }
 
-        /// <summary>Re-insert cut cells in order directly after anchor (new positions are assigned).</summary>
+        /// <summary>
+        /// Link cells cut with CutBlockCells(forget: false), in order, directly after anchor, and
+        /// give them new positions. The cut block still holds its inner links, so linking it changes
+        /// the links at its two ends only. Its cells are then placed together in the gap between
+        /// anchor and its successor; a region is renumbered only when the block does not fit.
+        /// </summary>
         internal void PasteCellsAfter(List<Cell> cells, Cell anchor) {
-            foreach (var c in cells) {
-                if (c.Name != null) _cells[c.Name] = c;
-                LinkAfter(c, anchor);
-                anchor = c;
+            if (cells.Count == 0) return;
+            if (anchor == _last) throw new ArgumentException("nothing can follow SINK");
+            Cell lo = cells[0], hi = cells[^1], nxt = anchor.Next!;
+            lo.Prev = anchor;
+            hi.Next = nxt;
+            anchor.Next = lo;
+            nxt.Prev = hi;
+            if (Integer) PlaceInteger(cells, anchor, nxt);
+            else PlaceRational(cells, anchor, nxt);
+        }
+
+        /// <summary>
+        /// Integer positions for a pasted block between left and right. The cells still carry their
+        /// labels from before the cut, increasing along the block. If the block's span fits into the
+        /// gap, the whole block is shifted to the middle of the gap and keeps its spacing; otherwise,
+        /// if there are at least as many free labels as cells, it is spread evenly over the gap;
+        /// otherwise a region around it is relabeled.
+        /// </summary>
+        private void PlaceInteger(List<Cell> cells, Cell left, Cell right) {
+            int m = cells.Count;
+            Cell lo = cells[0], hi = cells[^1];
+            long room = right.Num - left.Num - 1;               // free labels strictly between the two
+            long span = hi.Num - lo.Num;
+            if (m - 1 <= span && span < room) {
+                long d = left.Num + 1 + (room - span - 1) / 2 - lo.Num;
+                foreach (var c in cells) c.Num += d;
+            } else if (room >= m) {
+                for (int j = 0; j < m; j++)
+                    cells[j].Num = left.Num + (long)((Int128)(j + 1) * (room + 1) / (m + 1));
+            } else {
+                RebalanceInteger(lo, hi, m);
+                return;
             }
+            PasteCount++;
+        }
+
+        /// <summary>
+        /// Rational positions for a pasted block between left = a/b and right = c/d. The j-th of m
+        /// cells gets (a + jc) / (b + jd): the mediant of its predecessor and c/d, as if the cells
+        /// were linked one after another, so the positions increase strictly and lie strictly
+        /// between the two ends (for m = 1 the ordinary mediant). Numerators and denominators are
+        /// linear in j, so the first and the last cell bound them all; if they cannot be stored, a
+        /// region around the block is renumbered.
+        /// </summary>
+        private void PlaceRational(List<Cell> cells, Cell left, Cell right) {
+            int m = cells.Count;
+            long a = left.Num, b = left.Den, c = right.Num, d = right.Den;
+            if (b == 0 && d == 0) {                             // an empty list: whole numbers around 0
+                for (int j = 0; j < m; j++) { cells[j].Num = j - m / 2; cells[j].Den = 1; }
+                PasteCount++;
+                return;
+            }
+            foreach (long j in new long[] { 1, m }) {
+                Int128 num = a + (Int128)j * c, den = b + (Int128)j * d;
+                if (den > Limit || num > Limit || num < -Limit) {
+                    Rebalance(cells[0], cells[^1], m);
+                    return;
+                }
+            }
+            for (int j = 1; j <= m; j++) {
+                cells[j - 1].Num = a + j * c;                   // bounded by the check above
+                cells[j - 1].Den = b + j * d;
+            }
+            PasteCount++;
         }
 
         // -- public (names follow List.cs) ---------------------------------------

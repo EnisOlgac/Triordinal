@@ -3,15 +3,24 @@
 Shared by triordinal-dtree and triordinal-dgraph. Positions are fractions: a new
 element gets the mediant (a+c)/(b+d) of its neighbors a/b and c/d, which always lies
 strictly between them, so normally no other element moves. Rational positions were
-Enis Olgac's idea. Only when a denominator would exceed 64 bits is the smallest
-surrounding region with enough room renumbered with simple fractions k/2**32; larger
-regions must be sparser before they are accepted (as in Bender et al., ESA 2002).
+Enis Olgac's idea. Only when the mediant cannot be stored, because its denominator or
+the size of its numerator would exceed 2**61, is the smallest surrounding region with
+enough room renumbered with simple fractions k/2**20; larger regions must be sparser
+before they are accepted (as in Bender et al., ESA 2002). The bounds are those of the
+C# version, whose positions are 64-bit pairs, so both renumber at the same moments.
 
 Integer positions are offered as well, ``DList(name, positions="integer")``: a new element
 gets the midpoint of its neighbors' labels in [0, 2**62], as in classical order maintenance,
 and when no integer is left between them the smallest surrounding region with enough room is
 relabeled evenly, with the same density rule. In the Triordinal benchmarks, integer positions
 are faster to compare and rational positions are renumbered far less often.
+
+A block of cells that is cut and pasted elsewhere (DTree's cut_n_paste) is placed as a
+whole: with integer positions it is shifted, keeping its spacing, when its span fits into
+the gap, and otherwise spread evenly over the gap; with rational positions its j-th cell
+gets (a + jc)/(b + jd) between a/b and c/d, the positions that linking the cells one after
+another would give, checked at once. Only a block that does not fit renumbers a region
+around it.
 
 A list may also hold unnamed cells: they have a position like any other cell but no
 name, so iteration, ``next``/``prev`` and all lookups by name pass over them. DTree uses
@@ -26,8 +35,8 @@ from typing import Dict, Iterable, Iterator, List, Optional
 SOURCE = "["
 SINK = "]"
 
-_Q = 1 << 32  # denominator used when a crowded region is renumbered
-_LIMIT = 64  # renumber when a denominator would exceed this many bits
+_Q = 1 << 20  # denominator used when a crowded region is renumbered
+_LIMIT = 1 << 61  # largest denominator and numerator size a position may have (as in C#)
 _SLACK = 16  # after renumbering, neighbors are at least this many 1/_Q apart
 _GROWTH = 2  # each doubling of the region raises the required spacing by this factor
 _U = 1 << 62  # integer positions: SOURCE has label 0, SINK label _U
@@ -53,8 +62,8 @@ class DList:
     Positions are fractions num/den. A new node gets the mediant
     (a+c)/(b+d) of its neighbors a/b and c/d, which always lies strictly
     between them; SOURCE and SINK act as -1/0 and +1/0. Nothing else moves.
-    Only when a denominator would exceed _LIMIT bits is a small surrounding
-    region renumbered with simple fractions k/_Q.
+    Only when the mediant cannot be stored (denominator or numerator size
+    above _LIMIT) is a small surrounding region renumbered with fractions k/_Q.
     """
 
     def __init__(self, name: str, positions: str = "rational") -> None:
@@ -73,9 +82,11 @@ class DList:
         else:
             self.first.num, self.first.den = -1, 0  # -infinity
             self.last.num, self.last.den = 1, 0  # +infinity
-        # Statistics: how often positions were renumbered and how many moved.
+        # Statistics: how often positions were renumbered and how many moved, and how
+        # many pasted blocks fitted into their gap without moving any other cell.
         self.renumber_count = 0
         self.renumber_moved = 0
+        self.paste_count = 0
 
     # -- internals --------------------------------------------------------
     def _new(self, name: str) -> _Cell:
@@ -102,7 +113,7 @@ class DList:
             if g >= 2:
                 cell.num, cell.den = prev.num + (g >> 1), 1  # the midpoint
             else:
-                self._rebalance_integer(cell)
+                self._rebalance_integer(cell, cell, 1)
             return
         if prev is self.first and nxt is self.last:
             cell.num, cell.den = 0, 1  # first node of an empty list
@@ -110,16 +121,18 @@ class DList:
         # Mediant of the neighbors. Next to SOURCE (-1/0) or SINK (+1/0) this
         # steps by one whole unit, so a list can grow at either end forever
         # without renumbering (positives to the right, negatives to the left).
+        # Renumbering only when it cannot be stored: the mediant itself is a valid position
+        # however large its denominator, so nothing is done in advance.
         cell.num = prev.num + nxt.num
         cell.den = prev.den + nxt.den
-        if cell.den.bit_length() > _LIMIT:
-            self._rebalance(cell)
+        if cell.den > _LIMIT or abs(cell.num) > _LIMIT:
+            self._rebalance(cell, cell, 1)
 
-    def _rebalance(self, cell: _Cell) -> None:
-        """Renumber the smallest region around ``cell`` that has room, using fractions k/_Q."""
+    def _rebalance(self, lo: _Cell, hi: _Cell, m: int) -> None:
+        """Renumber the smallest region around the m linked cells lo..hi that has room, using
+        fractions k/_Q. The region starts one cell wider on each side and grows from there."""
         q = _Q
-        lo = hi = cell
-        m, k, need = 1, 1, _SLACK
+        k, need = 1, _SLACK
         while True:
             for _ in range(k):
                 if lo.prev is not self.first:
@@ -158,10 +171,10 @@ class DList:
         self.renumber_count += 1
         self.renumber_moved += m
 
-    def _rebalance_integer(self, cell: _Cell) -> None:
-        """Relabel the smallest region around ``cell`` that has room, evenly (integer positions)."""
-        lo = hi = cell
-        m, k, need = 1, 1, _SLACK
+    def _rebalance_integer(self, lo: _Cell, hi: _Cell, m: int) -> None:
+        """Relabel the smallest region around the m linked cells lo..hi that has room, evenly
+        (integer positions). The region starts one cell wider on each side and grows from there."""
+        k, need = 1, _SLACK
         while True:
             for _ in range(k):
                 if lo.prev is not self.first:
@@ -229,10 +242,69 @@ class DList:
         return cells
 
     def _paste_cells_after(self, cells: List[_Cell], anchor: _Cell) -> None:
-        """Link cut cells, in order, directly after ``anchor``; they get new positions."""
-        for c in cells:
-            self._link_after(c, anchor)
-            anchor = c
+        """Link cut cells, in order, directly after ``anchor``, and give them new positions.
+
+        The cut block still holds its inner links, so linking it changes the links at its two
+        ends only. Its cells are then placed together in the gap between ``anchor`` and its
+        successor (see _place_integer and _place_rational); a region is renumbered only when
+        the block does not fit."""
+        if not cells:
+            return
+        if anchor is self.last:
+            raise ValueError("nothing can follow SINK")
+        lo, hi, nxt = cells[0], cells[-1], anchor.next
+        lo.prev, hi.next = anchor, nxt
+        anchor.next, nxt.prev = lo, hi                  # names stay registered: _cut_cells(forget=False)
+        if self._integer:
+            self._place_integer(cells, anchor, nxt)
+        else:
+            self._place_rational(cells, anchor, nxt)
+
+    def _place_integer(self, cells: List[_Cell], left: _Cell, right: _Cell) -> None:
+        """Integer positions for a pasted block between left and right.
+
+        The cells still carry their labels from before the cut, increasing along the block.
+        If the block's span fits into the gap, the whole block is shifted to the middle of the
+        gap and keeps its spacing; otherwise, if there are at least as many free labels as
+        cells, it is spread evenly over the gap; otherwise a region around it is relabeled."""
+        m, lo, hi = len(cells), cells[0], cells[-1]
+        room = right.num - left.num - 1                  # free labels strictly between the two
+        span = hi.num - lo.num
+        if m - 1 <= span < room:
+            d = left.num + 1 + (room - span - 1) // 2 - lo.num
+            for c in cells:
+                c.num += d
+        elif room >= m:
+            for j, c in enumerate(cells):
+                c.num = left.num + ((j + 1) * (room + 1)) // (m + 1)
+        else:
+            self._rebalance_integer(lo, hi, m)
+            return
+        self.paste_count += 1
+
+    def _place_rational(self, cells: List[_Cell], left: _Cell, right: _Cell) -> None:
+        """Rational positions for a pasted block between left = a/b and right = c/d.
+
+        The j-th of m cells gets (a + jc) / (b + jd): the mediant of its predecessor and c/d,
+        as if the cells were linked one after another, so the positions increase strictly and
+        lie strictly between the two ends (for m = 1 the ordinary mediant). Numerators and
+        denominators are linear in j, so the first and the last cell bound them all; if they
+        cannot be stored, a region around the block is renumbered. (Weighted mediants
+        ((m+1-j)a + jc) / ((m+1-j)b + jd), which mix the two ends evenly, renumbered more
+        often in the 2.3.0 measurements, and reduced by their gcd they were slower.)"""
+        m = len(cells)
+        a, b, c, d = left.num, left.den, right.num, right.den
+        if b == 0 and d == 0:                            # an empty list: whole numbers around 0
+            for j, x in enumerate(cells):
+                x.num, x.den = j - m // 2, 1
+            self.paste_count += 1
+            return
+        if any(b + j * d > _LIMIT or abs(a + j * c) > _LIMIT for j in (1, m)):
+            self._rebalance(cells[0], cells[-1], m)
+            return
+        for j, x in enumerate(cells, 1):
+            x.num, x.den = a + j * c, b + j * d
+        self.paste_count += 1
 
     # -- public -----------------------------------------------------------
     def __contains__(self, name: str) -> bool:
@@ -378,4 +450,4 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 __all__ = ["DList", "SOURCE", "SINK", "POSITIONS"]
-__version__ = "2.2.0"
+__version__ = "2.3.0"

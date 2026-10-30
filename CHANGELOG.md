@@ -2,6 +2,34 @@
 
 All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
 
+## 2.3.0
+
+DList changes, in Python and C#; DTree and EulerTree get them through DList. All packages move to 2.3.0; `triordinal-dtree` 2.3.0 needs `triordinal-dlist` 2.3.0.
+
+**Renumbering only when needed.** Rational positions are renumbered only when a new mediant cannot be stored, its denominator or the size of its numerator exceeding 2⁶¹; before, C# renumbered at denominators above 2⁴⁰ and Python above 2⁶⁴, although the new position was valid. Integer positions already worked this way. Raised by Enis Olgac ("why do you rebalance before it's needed?"). Both languages now use the same bounds, those of C#'s 64-bit numbers, and the same renumbered fractions k/2²⁰ (Python used k/2³²), so they renumber at the same moments and give the same positions; a C# test checks positions computed by the Python reference.
+
+**Moving a subtree places it as one block** (`cut_n_paste` / `CutNPaste`, and every caller of the list's cell-level paste). Proposed by Claude and chosen by Enis Olgac, who added the shift. The cut block keeps its inner links, so pasting it links its two ends only, and its names stay registered. Then:
+- integer positions: if the block's span (`]u − u`, Enis Olgac's idea) fits into the gap at its new place, the whole block is shifted to the middle of the gap and keeps its spacing; otherwise, if the gap has a free label for every cell, the block is spread evenly over it; otherwise a region around it is relabeled;
+- rational positions: the j-th of m cells gets (a + jc)/(b + jd) between a/b and c/d, the mediants that linking the cells one after another gives, checked at once; if they cannot be stored, a region around the block is renumbered. Weighted mediants, which mix both ends evenly, were tried and renumbered more often (measured by Claude);
+- a block that fits is counted in the new `paste_count` / `PasteCount`, not as a renumbering.
+
+New benchmark section **moving subtrees** (`python -m triordinal.dtree.bench --moves`, `-- bench moves`; also part of a full run): a random tree, then 20,000 random subtrees moved to random new parents, legal moves chosen with the tree's own `can_reach`, only `cut_n_paste` timed; renumberings, positions renumbered per move and fitted pastes, for DTree and EulerTree with both kinds of position. Proposed by Claude; runnable on its own at Enis Olgac's request.
+
+Measured by Claude in Python on its Linux workspace with that section, against 2.2.0 on the same machine (Q1 / Q2):
+
+| tree, positions | nodes | 2.2.0: µs per move, renumberings | 2.3.0: µs per move, renumberings |
+|---|---:|---:|---:|
+| DTree, integer | 10,000 | 54.3, 99,819 / 102,886 | 34.0, 511 / 388 |
+| DTree, integer | 100,000 | 25.3, 37,980 / 36,729 | 24.5, 385 / 182 |
+| DTree, rational | 10,000 | 44.0, 113 / 98 | 38.2, 120 / 126 |
+| DTree, rational | 100,000 | 20.7, 4 / 3 | 22.6, 30 / 24 |
+| EulerTree, integer | 10,000 | 23.2, 99,819 | 13.1, 511 |
+| EulerTree, rational | 100,000 | 10.6, 4 | 11.6, 30 |
+
+With rational positions, the larger tree renumbers somewhat more than before because Python's bound fell from 2⁶⁴ to 2⁶¹ and renumbered fractions are coarser (k/2²⁰ instead of k/2³²); the moves themselves fit as before. Building trees of 100,000 nodes with rational positions: chain 3,389 renumberings per list instead of 4,346, top-down comb 101 instead of 129, alternating 3,554 instead of 2,940 (Python's bound fell from 2⁶⁴ to 2⁶¹); integer positions unchanged. In C#, whose bound rises from 2⁴⁰ to 2⁶¹, rational positions should renumber less than before; not yet measured.
+
+Tests: block moves against a plain list, shift, even spread and renumbering of a block, the chain of mediants, renumbering exactly when a mediant cannot be stored, many subtree moves in every tree variant, and (C#) the same positions as the Python reference.
+
 ## 2.2.0
 
 **EulerTree: the tree on one list** (Python and C#). `from triordinal.dtree.euler import EulerTree`; in C#, `Triordinal.DTree.Euler.EulerTree` in the package `Triordinal.DTree` (names chosen by Enis Olgac). An EulerTree keeps DTree's Q1 alone, with the closing cells of 2.1.0: the subtree of *u* is the block from *u* to its closing cell (*u* alone for a leaf), and *u* reaches *v* exactly when *v*'s cell lies strictly inside *u*'s block, two comparisons as in DTree. This is the classical parenthesis (Euler-tour) encoding, maintained on DTree's list; leaves need no closing cell. It shares DTree's code, so the whole API comes along: names or handles, `insert` / `insert_after` / `insert_before`, `delete`, `delete_subtree`, `cut_n_paste`, strict mode, and the constructed nodes `VMin`, `VMax`, `UMin`, `UMax`, which in one list use the end of each member's block in place of its Q2 position (insertions keep the order of block ends, so they stay valid). `Q2` and `q2` do not exist. Decided by Enis Olgac after the comparison with prior art below: DTree stays as it is, and the one-list variant is offered next to it.

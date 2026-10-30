@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from triordinal.dlist import SINK, SOURCE, DList  # noqa: E402
+from triordinal.dlist import POSITIONS, SINK, SOURCE, DList, _LIMIT  # noqa: E402
 
 
 class TestDList(unittest.TestCase):
@@ -126,6 +126,115 @@ class TestUnnamedCells(unittest.TestCase):
             q._insert_cell_after(None, q.last)       # nothing follows SINK
         with self.assertRaises(ValueError):
             q.cut_block(SOURCE, "a")                 # markers cannot be cut
+
+
+class TestPasteAndLimits(unittest.TestCase):
+    """2.3.0: a pasted block is placed as a whole; rational positions renumber only when a
+    mediant cannot be stored."""
+
+    def increasing(self, q):
+        c = q.first
+        while c.next is not None:
+            if not q._lt(c, c.next):
+                return False
+            c = c.next
+        return True
+
+    def build(self, positions, n=40):
+        q = DList("Q", positions)
+        for i in range(n):
+            q.insert_before(f"v{i}", SINK)
+        return q
+
+    def move(self, q, first, last, anchor):
+        block = q._cut_cells(q._cells[first], q._cells[last], forget=False)
+        q._paste_cells_after(block, q._cells[anchor])
+        return block
+
+    def test_random_moves_keep_order(self):
+        for positions in POSITIONS:
+            rnd = random.Random(4)
+            q, ref = self.build(positions, 300), [f"v{i}" for i in range(300)]
+            for _ in range(2000):
+                i = rnd.randrange(len(ref))
+                j = min(len(ref) - 1, i + rnd.choice([0, 0, 1, 3, 20]))
+                block = ref[i:j + 1]
+                rest = ref[:i] + ref[j + 1:]
+                k = rnd.randrange(len(rest) + 1)                # paste after rest[k - 1], or after SOURCE
+                anchor = q.first if k == 0 else q._cells[rest[k - 1]]
+                q._paste_cells_after(q._cut_cells(q._cells[block[0]], q._cells[block[-1]], forget=False), anchor)
+                ref = rest[:k] + block + rest[k:]
+                self.assertTrue(self.increasing(q), positions)
+            self.assertEqual(list(q), ref, positions)
+            self.assertGreater(q.paste_count, 0, positions)
+            for _ in range(300):
+                a, b = rnd.sample(ref, 2)
+                self.assertEqual(q.precedes(a, b), ref.index(a) < ref.index(b))
+
+    def test_integer_block_is_shifted_when_its_span_fits(self):
+        q = self.build("integer", 10)                           # appends halve the gap to SINK each time
+        inner = [q.index(f"v{i}") for i in (7, 8, 9)]
+        self.move(q, "v7", "v9", "v0")                          # the gap from v0 to v1 is the widest
+        moved = [q.index(f"v{i}") for i in (7, 8, 9)]
+        self.assertEqual([b - a for a, b in zip(inner, inner[1:])], [b - a for a, b in zip(moved, moved[1:])])
+        self.assertTrue(q.index("v0") < moved[0] and moved[-1] < q.index("v1"))
+        self.assertEqual((q.paste_count, q.renumber_count), (1, 0))
+
+    def test_integer_block_is_spread_or_renumbered(self):
+        q = DList("Q", "integer")
+        for n in "abcdef":
+            q.insert_before(n, SINK)
+        a, b = q._cells["a"], q._cells["b"]
+        b.num = a.num + 4                                       # leave three free labels after a
+        self.move(q, "c", "e", "a")                             # span too wide, three cells: spread
+        self.assertEqual(list(q), ["a", "c", "d", "e", "b", "f"])
+        self.assertEqual([q.index(n) - q.index("a") for n in "cde"], [1, 2, 3])
+        self.assertEqual((q.paste_count, q.renumber_count), (1, 0))
+        self.move(q, "e", "b", "a")                             # no room for two more: renumber
+        self.assertEqual(list(q), ["a", "e", "b", "c", "d", "f"])
+        self.assertTrue(self.increasing(q))
+        self.assertEqual((q.paste_count, q.renumber_count), (1, 1))
+
+    def test_rational_block_gets_the_chain_of_mediants(self):
+        q = self.build("rational", 6)
+        self.move(q, "v1", "v3", "v4")
+        a, c = q._cells["v4"], q._cells["v5"]
+        for j, n in enumerate(["v1", "v2", "v3"], 1):
+            x = q._cells[n]
+            self.assertEqual((x.num, x.den), (a.num + j * c.num, a.den + j * c.den))
+        self.assertEqual((q.paste_count, q.renumber_count), (1, 0))
+
+    def test_rational_renumbers_only_when_a_mediant_cannot_be_stored(self):
+        q = DList("Q")
+        q.insert_before("a", SINK)
+        q.insert_before("b", SINK)
+        a, b = q._cells["a"], q._cells["b"]
+        a.num, a.den = 1, _LIMIT                                # stored, but a mediant with b would exceed _LIMIT
+        b.num, b.den = 1, 1
+        q.insert_after("x", "b")                                # elsewhere: stored, nothing renumbered
+        self.assertEqual(q.renumber_count, 0)
+        q.insert_after("y", "a")
+        self.assertEqual(q.renumber_count, 1)
+        self.assertEqual(list(q), ["a", "y", "b", "x"])
+        self.assertTrue(self.increasing(q))
+        self.assertTrue(all(c.den <= _LIMIT for c in (a, b, q._cells["y"])))
+
+    def test_alternating_denominators_reach_the_limit_before_renumbering(self):
+        q = DList("Q")
+        q.insert_before("L", SINK)
+        q.insert_before("R", SINK)
+        left, right, top = "L", "R", 0
+        for i in range(200):
+            q.insert_after(f"x{i}", left)
+            if i % 2:
+                left = f"x{i}"
+            else:
+                right = f"x{i}"
+            top = max(top, q._cells[f"x{i}"].den)
+            if q.renumber_count:
+                break
+        self.assertEqual(q.renumber_count, 1)
+        self.assertGreater(top, _LIMIT >> 2)                    # denominators grew close to 2**61 first
 
 
 class TestDListInteger(TestDList):

@@ -45,8 +45,9 @@ neighbors a/b and c/d (the Stern-Brocot construction), which always lies
 strictly between them, so normally no other node moves. Rational positions
 were Enis Olgac's idea; repeated insertion into the same gap (a node with many
 children, appending at either end) then keeps positions at O(log n) bits. Only
-when a denominator would exceed 64 bits, which needs alternating insertions,
-is a small surrounding region renumbered with simple fractions k/2**32.
+when a mediant cannot be stored, its denominator or numerator exceeding 2**61, is
+a small surrounding region renumbered with simple fractions k/2**20. A subtree
+moved by cut_n_paste is placed as one block (see triordinal.dlist).
 """
 
 
@@ -155,6 +156,11 @@ class Projection:
     def renumber_moved(self) -> int:
         """How many positions renumbering changed in total (closing cells included)."""
         return self._list.renumber_moved
+
+    @property
+    def paste_count(self) -> int:
+        """How many pasted blocks (cut_n_paste) fitted into their gap without renumbering."""
+        return self._list.paste_count
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._list)
