@@ -32,8 +32,11 @@ namespace DirectedTrees {
             _reshapes = tree.Reshapes;
         }
 
-        private bool Better(DList.Cell candidate, DList.Cell current) =>
-            _lowest ? DList.Less(candidate, current) : DList.Less(current, candidate);
+        private bool Better1(DNode candidate, DNode current) =>
+            _lowest ? Tree.Lt1(candidate, current) : Tree.Lt1(current, candidate);
+
+        private bool Better2(DNode candidate, DNode current) =>
+            _lowest ? Tree.Lt2(candidate, current) : Tree.Lt2(current, candidate);
 
         /// <summary>Add a node of the tree to the set; returns the constructed node itself.</summary>
         public ConstructedNode Add(string node) => Add(Tree.GetNode(node));
@@ -48,8 +51,8 @@ namespace DirectedTrees {
                 if (DList.Less(node.C1, Members[mid].C1)) hi = mid; else lo = mid + 1;
             }
             Members.Insert(lo, node);
-            if (Q1Node == null || Better(node.C1, Q1Node.C1)) Q1Node = node;
-            if (Q2Node == null || Better(node.C2, Q2Node.C2)) Q2Node = node;
+            if (Q1Node == null || Better1(node, Q1Node)) Q1Node = node;
+            if (Q2Node == null || Better2(node, Q2Node)) Q2Node = node;
             Added(node);
             return this;
         }
@@ -74,8 +77,8 @@ namespace DirectedTrees {
             if (node == Q1Node || node == Q2Node) {
                 Q1Node = Q2Node = null;
                 foreach (var n in Members) {
-                    if (Q1Node == null || Better(n.C1, Q1Node.C1)) Q1Node = n;
-                    if (Q2Node == null || Better(n.C2, Q2Node.C2)) Q2Node = n;
+                    if (Q1Node == null || Better1(n, Q1Node)) Q1Node = n;
+                    if (Q2Node == null || Better2(n, Q2Node)) Q2Node = n;
                 }
             }
             Discarded(node);
@@ -104,8 +107,8 @@ namespace DirectedTrees {
             Q1Node = Q2Node = null;
             foreach (var n in Members) {
                 _seen.Add(n);
-                if (Q1Node == null || Better(n.C1, Q1Node.C1)) Q1Node = n;
-                if (Q2Node == null || Better(n.C2, Q2Node.C2)) Q2Node = n;
+                if (Q1Node == null || Better1(n, Q1Node)) Q1Node = n;
+                if (Q2Node == null || Better2(n, Q2Node)) Q2Node = n;
             }
             _reshapes = Tree.Reshapes;
             Rebuilt();
@@ -130,10 +133,10 @@ namespace DirectedTrees {
         }
 
         /// <summary>u lies strictly left of the constructed node in both Q1 and Q2.</summary>
-        private protected bool Below(DNode u) => DList.Less(u.C1, Q1Node!.C1) && DList.Less(u.C2, Q2Node!.C2);
+        private protected bool Below(DNode u) => Tree.Lt1(u, Q1Node!) && Tree.Lt2(u, Q2Node!);
 
         /// <summary>v lies strictly right of the constructed node in both Q1 and Q2.</summary>
-        private protected bool Above(DNode v) => DList.Less(Q1Node!.C1, v.C1) && DList.Less(Q2Node!.C2, v.C2);
+        private protected bool Above(DNode v) => Tree.Lt1(Q1Node!, v) && Tree.Lt2(Q2Node!, v);
     }
 
     /// <summary>
@@ -183,7 +186,7 @@ namespace DirectedTrees {
                 int mid = (lo + hi) / 2;
                 if (DList.Less(u.C1, Members[mid].C1)) hi = mid; else lo = mid + 1;
             }
-            return lo < Members.Count && DTree.Reaches(u, Members[lo]);
+            return lo < Members.Count && Tree.Reach(u, Members[lo]);
         }
     }
 
@@ -231,13 +234,13 @@ namespace DirectedTrees {
 
         private bool Covered(DNode v) {
             int i = TopsBefore(v);
-            return i > 0 && DTree.Reaches(_tops[i - 1], v);
+            return i > 0 && Tree.Reach(_tops[i - 1], v);
         }
 
         private protected override void Added(DNode node) {
             if (Covered(node)) return;                              // an ancestor of node is already in the set
             int i = TopsBefore(node);
-            while (i < _tops.Count && DTree.Reaches(node, _tops[i]))
+            while (i < _tops.Count && Tree.Reach(node, _tops[i]))
                 _tops.RemoveAt(i);                                  // node is above them: no longer topmost
             _tops.Insert(i, node);
         }
@@ -249,7 +252,7 @@ namespace DirectedTrees {
         private protected override void Rebuilt() {
             _tops.Clear();
             foreach (var v in Members)                              // Q1 order: ancestors come first
-                if (_tops.Count == 0 || !DTree.Reaches(_tops[^1], v)) _tops.Add(v);
+                if (_tops.Count == 0 || !Tree.Reach(_tops[^1], v)) _tops.Add(v);
         }
 
         /// <summary>Fast rejection: false means no node of the set reaches v; true is not a confirmation.</summary>
@@ -276,7 +279,7 @@ namespace DirectedTrees {
             Check();
             if (!Tree.Live(v)) return null;
             int i = TopsBefore(v);
-            return i > 0 && DTree.Reaches(_tops[i - 1], v) ? _tops[i - 1] : null;
+            return i > 0 && Tree.Reach(_tops[i - 1], v) ? _tops[i - 1] : null;
         }
     }
 }

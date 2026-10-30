@@ -8,8 +8,16 @@ namespace Triordinal {
         public const string Sink = "]";
     }
 
+    /// <summary>The kind of position in a <see cref="DList"/>.</summary>
+    public enum Positions {
+        /// <summary>Fractions: a new position is the mediant of its neighbors (the default).</summary>
+        Rational,
+        /// <summary>Integers in [0, 2^62]: a new position is the midpoint of its neighbors, as in classical order maintenance.</summary>
+        Integer,
+    }
+
     /// <summary>
-    /// Doubly linked list of node names with rational positions (O(1) precedence test).
+    /// Doubly linked list of node names with rational (or integer) positions (O(1) precedence test).
     /// </summary>
     /// <remarks>
     /// A position is a fraction Num/Den. A new node gets the mediant (a+c)/(b+d) of its
@@ -23,6 +31,11 @@ namespace Triordinal {
     /// (deletions never shrink them), so a region is also renumbered when a numerator would
     /// exceed 2^61. Every mediant is then the sum of two numerators below 2^61 and cannot
     /// overflow, and a cell is linked only after its position has been computed.
+    /// With Positions.Integer, a position is an integer label in [0, 2^62] (Den 1): a new cell gets the
+    /// midpoint of its neighbors' labels, and when no integer is left between them the smallest
+    /// surrounding region with enough room is relabeled evenly, with the same density rule. In the
+    /// Triordinal benchmarks, integer positions are faster to compare and rational positions are
+    /// renumbered far less often.
     /// A list may also hold unnamed cells: they have a position like any other cell but no name,
     /// so enumeration, Next/Prev and all lookups by name pass over them. DTree uses them as the
     /// closing cell of each node with children, which marks the end of its subtree.
@@ -33,6 +46,7 @@ namespace Triordinal {
         private const long NumLimit = 1L << 61; // ... or a numerator; two such numerators sum below 2^62
         private const double Slack = 16.0;      // minimum spacing (in 1/Q) after renumbering
         private const double Growth = 2.0;      // each doubling of the region raises the spacing
+        private const long U = 1L << 62;        // integer positions: SOURCE has label 0, SINK label U
 
         internal sealed class Cell {
             internal readonly string? Name;    // null for an unnamed cell
@@ -48,17 +62,30 @@ namespace Triordinal {
         private readonly Cell _first;
         private readonly Cell _last;
 
-        public DList(string name) {
+        public DList(string name, Positions positions = Positions.Rational) {
             Name = name;
+            Kind = positions;
+            Integer = positions == Positions.Integer;
             _first = New(Marker.Source);
             _last = New(Marker.Sink);
             _first.Next = _last;
             _last.Prev = _first;
-            _first.Num = -1; _first.Den = 0;    // -infinity
-            _last.Num = 1; _last.Den = 0;       // +infinity
+            if (Integer) {
+                _first.Num = 0; _first.Den = 1;     // integer labels (Den 1) in [0, 2^62]
+                _last.Num = U; _last.Den = 1;
+            } else {
+                _first.Num = -1; _first.Den = 0;    // -infinity
+                _last.Num = 1; _last.Den = 0;       // +infinity
+            }
         }
 
         public string Name { get; }
+
+        /// <summary>The kind of position: rational (the default) or integer.</summary>
+        public Positions Kind { get; }
+
+        /// <summary>True for integer positions: then every position is Num with Den 1, compared directly.</summary>
+        internal readonly bool Integer;
 
         /// <summary>How often a region was renumbered.</summary>
         public long RenumberCount { get; private set; }
@@ -102,6 +129,20 @@ namespace Triordinal {
 
         private void LinkAfter(Cell cell, Cell prev) {
             var nxt = prev.Next!;
+            if (Integer) {
+                cell.Prev = prev;
+                cell.Next = nxt;
+                prev.Next = cell;
+                nxt.Prev = cell;
+                long g = nxt.Num - prev.Num;
+                if (g >= 2) {
+                    cell.Num = prev.Num + (g >> 1);                 // the midpoint
+                    cell.Den = 1;
+                } else {
+                    RebalanceInteger(cell);
+                }
+                return;
+            }
             long num, den;
             if (prev == _first && nxt == _last) {    // first node of an empty list
                 num = 0; den = 1;
@@ -122,6 +163,35 @@ namespace Triordinal {
             cell.Num = num;
             cell.Den = den;
             if (den > Limit || num > NumLimit || num < -NumLimit) Rebalance(cell);
+        }
+
+        /// <summary>Relabel the smallest region around cell that has room, evenly (integer positions).</summary>
+        private void RebalanceInteger(Cell cell) {
+            Cell lo = cell, hi = cell, left, right;
+            long m = 1, room;
+            int k = 1;
+            double need = Slack;
+            while (true) {
+                for (int s = 0; s < k; s++) {
+                    if (lo.Prev != _first) { lo = lo.Prev!; m++; }
+                    if (hi.Next != _last) { hi = hi.Next!; m++; }
+                }
+                left = lo.Prev!;
+                right = hi.Next!;
+                room = right.Num - left.Num - 1;                    // integers strictly between the two
+                if (room >= m * need || (left == _first && right == _last)) break;
+                k *= 2;
+                need *= Growth;
+            }
+            if (room < m) throw new OverflowException($"{Name}: no integer positions left");
+            var c = lo;
+            for (long j = 0; j < m; j++) {
+                c.Num = left.Num + (long)((Int128)(j + 1) * (room + 1) / (m + 1));
+                c.Den = 1;
+                c = c.Next!;
+            }
+            RenumberCount++;
+            RenumberMoved += m;
         }
 
         private void Unlink(Cell cell) {
@@ -250,14 +320,15 @@ namespace Triordinal {
         public bool IsAllocated(string name) => _cells.ContainsKey(name);
         public bool IsNotAllocated(string name) => !_cells.ContainsKey(name);
 
-        /// <summary>Position of name as (Num, Den); SOURCE/SINK have Den 0. Null if absent.</summary>
+        /// <summary>Position of name as (Num, Den); with rational positions SOURCE/SINK have Den 0, with integer positions they are 0 and 2^62 (Den 1). Null if absent.</summary>
         public (long Num, long Den)? Index(string name) =>
             _cells.TryGetValue(name, out var c) ? (c.Num, c.Den) : null;
 
         /// <summary>Position of name as a double (for display; comparisons use exact arithmetic).</summary>
         public double IndexValue(string name) {
             var c = Get(name);
-            if (c.Den == 0) return c.Num > 0 ? double.PositiveInfinity : double.NegativeInfinity;
+            if (c == _first) return double.NegativeInfinity;
+            if (c == _last) return double.PositiveInfinity;
             return (double)c.Num / c.Den;
         }
 

@@ -4,6 +4,8 @@
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench   run the benchmarks
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench dynamic   only the dynamic updates and the tree view
 //   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench review    only the patterns from the review of 1.8.0
+//   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench prior-art only the comparison with prior art
+//   dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench euler     only DTree against EulerTree, by kind of position
 //   ... -- bench --note "idle machine after restart"   remark for the report;  ... -- bench --no-save   no report
 //
 // Every benchmark run also writes its tables as a Markdown report to benchmarks/csharp/ at the
@@ -17,6 +19,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using DirectedTrees;
 using Triordinal;
+using Triordinal.DTree.Euler;
 
 namespace DirectedTrees.Tests {
 
@@ -79,19 +82,43 @@ namespace DirectedTrees.Tests {
                 ("strict: queries throw", Tests.StrictThrows),
                 ("constructed nodes: a reused name is not a member", Tests.ReusedNameIsNotAMember),
                 ("IsRoot on an empty tree and with null", Tests.IsRootEmptyAndNull),
+                ("EulerTree: no Q2, leaves need no closing cell, same answers as DTree", Tests.EulerSpecifics),
+                ("DList: integer positions", Tests.DListIntegerPositions),
+                ("prior art: Euler tour and pre/post numbers vs brute force", Tests.PriorArtContenders),
+                ("prior art: pre/post numbers are recomputed lazily", Tests.PriorArtLazy),
+                ("prior art: integer labels (IntList, Euler tour)", Tests.PriorArtIntegerLabels),
+                ("prior art: double and decimal positions (NumList, Euler tour)", Tests.PriorArtFloatingPositions),
             };
             var total = Stopwatch.StartNew();
-            foreach (var (name, body) in tests) {
-                int before = _failures;
-                var sw = Stopwatch.StartNew();
-                try {
-                    body();
-                } catch (Exception e) {
-                    Fail($"unexpected {e.GetType().Name}: {e.Message}");
+            int count = 0;
+            void RunAll(IEnumerable<(string Name, Action Body)> list, string suffix) {
+                foreach (var (name, body) in list) {
+                    int before = _failures;
+                    var sw = Stopwatch.StartNew();
+                    try {
+                        body();
+                    } catch (Exception e) {
+                        Fail($"unexpected {e.GetType().Name}: {e.Message}");
+                    }
+                    count++;
+                    Console.WriteLine($"{(_failures == before ? "ok  " : "FAIL")} {name}{suffix} ({sw.ElapsedMilliseconds} ms)");
                 }
-                Console.WriteLine($"{(_failures == before ? "ok  " : "FAIL")} {name} ({sw.ElapsedMilliseconds} ms)");
             }
-            Console.WriteLine($"\n{tests.Length} tests, {_checks:N0} checks, {_failures} failures, {total.Elapsed.TotalSeconds:F2} s");
+            RunAll(tests, "");
+            // The tree tests once more for each variant: DTree with integer positions, EulerTree (one list)
+            // with rational and with integer positions. List-level and prior-art tests do not depend on it.
+            var treeTests = tests.Where(x => !x.Name.StartsWith("DList") && !x.Name.StartsWith("prior art") && !x.Name.StartsWith("EulerTree")).ToArray();
+            var variants = new (string Name, Func<string, bool, DTree> Make, Func<string, bool, DTree> FromFile)[] {
+                ("DTree, integer", (id, st) => new DTree(id, st, Positions.Integer), (p, st) => DTree.FromFile(p, strict: st, positions: Positions.Integer)),
+                ("EulerTree, rational", (id, st) => new EulerTree(id, st), (p, st) => EulerTree.FromFile(p, strict: st)),
+                ("EulerTree, integer", (id, st) => new EulerTree(id, st, Positions.Integer), (p, st) => EulerTree.FromFile(p, strict: st, positions: Positions.Integer)),
+            };
+            foreach (var v in variants) {
+                Tests.Factory = v.Make;
+                Tests.FileFactory = v.FromFile;
+                RunAll(treeTests, $" [{v.Name}]");
+            }
+            Console.WriteLine($"\n{count} tests, {_checks:N0} checks, {_failures} failures, {total.Elapsed.TotalSeconds:F2} s");
             return _failures == 0 ? 0 : 1;
         }
 
@@ -246,6 +273,18 @@ namespace DirectedTrees.Tests {
     }
 
     internal static partial class Tests {
+        /// <summary>The variant under test: DTree or EulerTree, with rational or integer positions.</summary>
+        internal static Func<string, bool, DTree> Factory = (id, strict) => new DTree(id, strict);
+        internal static Func<string, bool, DTree> FileFactory = (path, strict) => DTree.FromFile(path, strict: strict);
+
+        private static DTree NewTree(string id = "P1", bool strict = false) => Factory(id, strict);
+        private static DTree TreeFromFile(string path, bool strict = false) => FileFactory(path, strict);
+
+        /// <summary>The tree keeps Q2 as well (DTree; an EulerTree keeps Q1 only).</summary>
+        private static bool Two(DTree t) => t.List2 != null;
+
+        private static DList[] Lists(DTree t) => t.List2 is DList q2 ? new[] { t.List1, q2 } : new[] { t.List1 };
+
         private static void Check(bool c, string m) => Program.Check(c, m);
         private static void Seq<T>(IEnumerable<T> a, IEnumerable<T> e, string m) => Program.Seq(a, e, m);
         private static void Equal<T>(T a, T e, string m) => Program.Equal(a, e, m);
@@ -253,14 +292,14 @@ namespace DirectedTrees.Tests {
 
         private static void CheckAgainst(DTree t, Reference r, Random rnd) {
             Check(t.Q1.PositionsStrictlyIncrease(), "Q1 positions increase");
-            Check(t.Q2.PositionsStrictlyIncrease(), "Q2 positions increase");
+            if (Two(t)) Check(t.Q2.PositionsStrictlyIncrease(), "Q2 positions increase");
             var nodes = r.Nodes();
             Equal(t.Size, nodes.Count, "size");
             Equal(t.Root, r.Root, "root");
             Seq(t.Q1.ToList(), r.Preorder(false), "Q1");
-            Seq(t.Q2.ToList(), r.Preorder(true), "Q2");
+            if (Two(t)) Seq(t.Q2.ToList(), r.Preorder(true), "Q2");
             Seq(RawCells(t.List1), r.Euler(false), "Q1 cells");
-            Seq(RawCells(t.List2), r.Euler(true), "Q2 cells");
+            if (Two(t)) Seq(RawCells(t.List2!), r.Euler(true), "Q2 cells");
             foreach (var v in nodes) {
                 var anc = r.Ancestors(v);
                 Seq(t.PathToRoot(v), anc, $"PathToRoot({v})");
@@ -289,7 +328,7 @@ namespace DirectedTrees.Tests {
 
         private static (DTree, Reference, Random) RandomTree(int n, int seed) {
             var rnd = new Random(seed);
-            var t = new DTree("R");
+            var t = NewTree("R");
             var r = new Reference();
             var names = new List<string> { "n0" };
             for (int i = 1; i < n; i++) {
@@ -302,7 +341,7 @@ namespace DirectedTrees.Tests {
         }
 
         public static void ReadmeUsage() {
-            var t = new DTree("P1");
+            var t = NewTree("P1");
             t.Insert("A", "B");
             t.Insert("B", "C");
             Check(t.CanReach("A", "C"), "A reaches C");
@@ -316,14 +355,14 @@ namespace DirectedTrees.Tests {
         }
 
         public static void InsertRules() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             Throws<KeyNotFoundException>(() => t.Insert("X", "Y"), "parent must exist");
             Throws<ArgumentException>(() => t.Insert("A", "B"), "child must not exist");
         }
 
         public static void NoSelfReachability() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             foreach (var v in new[] { "A", "B" }) {
                 Check(!t.CanReach(v, v), $"CanReach({v},{v}) is false");
@@ -337,7 +376,7 @@ namespace DirectedTrees.Tests {
 
         public static void TwoKindsOfDelete() {
             static DTree Build() {
-                var t = new DTree();
+                var t = NewTree();
                 foreach (var (u, v) in new[] { ("A", "B"), ("B", "C"), ("B", "D"), ("A", "E") }) t.Insert(u, v);
                 return t;
             }
@@ -348,29 +387,29 @@ namespace DirectedTrees.Tests {
             var t2 = Build();
             Seq(t2.DeleteSubtree("B"), new[] { "B", "C", "D" }, "DeleteSubtree result");
             Seq(t2.Q1.ToList(), new[] { "A", "E" }, "Q1 after DeleteSubtree");
-            Seq(t2.Q2.ToList(), new[] { "A", "E" }, "Q2 after DeleteSubtree");
+            if (Two(t2)) Seq(t2.Q2.ToList(), new[] { "A", "E" }, "Q2 after DeleteSubtree");
             Throws<InvalidOperationException>(() => t2.DeleteSubtree("A"), "DeleteSubtree(root)");
         }
 
         public static void DeleteRootDisallowed() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             Throws<InvalidOperationException>(() => t.Delete("A"), "Delete(root)");
         }
 
         public static void CutIntoOwnSubtreeRejected() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             t.Insert("B", "C");
             Throws<InvalidOperationException>(() => t.CutNPaste("B", "C"), "CutNPaste into own subtree");
         }
 
         public static void ListLevelAccess() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             t.Insert("A", "C");
             Check(t.Q1.IsLeftOf("B", "C"), "B left of C in Q1");
-            Check(t.Q2.IsLeftOf("C", "B"), "C left of B in Q2");
+            if (Two(t)) Check(t.Q2.IsLeftOf("C", "B"), "C left of B in Q2");
             Seq(t.Q1, t.Q1.ToList(), "Q1 enumerates its nodes");
         }
 
@@ -380,17 +419,17 @@ namespace DirectedTrees.Tests {
             foreach (var name in new[] { "Test.csx", "Test1.csx", "test23.csx" }) {
                 var path = System.IO.Path.Combine(dir, name);
                 if (!File.Exists(path)) continue;
-                var t = DTree.FromFile(path);
+                var t = TreeFromFile(path);
                 Equal(t.Root, "01", $"{name}: root");
                 Check(t.CanReach("01", "22"), $"{name}: 01 reaches 22");
                 Seq(t.PathToRoot("22"), new[] { "22", "10", "06", "04", "01" }, $"{name}: PathToRoot(22)");
             }
             var sib = System.IO.Path.Combine(dir, "siblings.csx");
             if (File.Exists(sib)) {
-                var t = DTree.FromFile(sib);
+                var t = TreeFromFile(sib);
                 Seq(t.Children("01"), new[] { "02", "04", "06", "05" }, "siblings.csx: children of 01");
                 Seq(t.Q1.ToList(), new[] { "01", "02", "03a", "03", "04", "06", "05" }, "siblings.csx: Q1");
-                Seq(t.Q2.ToList(), new[] { "01", "05", "06", "04", "02", "03", "03a" }, "siblings.csx: Q2");
+                if (Two(t)) Seq(t.Q2.ToList(), new[] { "01", "05", "06", "04", "02", "03", "03a" }, "siblings.csx: Q2");
             }
         }
 
@@ -530,47 +569,48 @@ namespace DirectedTrees.Tests {
         }
 
         public static void DeepChain() {
-            var t = new DTree();
+            var t = NewTree();
             for (int i = 0; i < 5000; i++) t.Insert($"v{i}", $"v{i + 1}");
             Equal(t.Depth("v5000"), 5000, "depth");
             Check(t.CanReach("v0", "v5000"), "top reaches bottom");
             Check(!t.CanReach("v5000", "v0"), "bottom does not reach top");
             // a chain nests every new node into the gap of its parent: renumbering keeps the
             // positions strictly increasing and the denominators bounded
-            Check(t.Q1.PositionsStrictlyIncrease() && t.Q2.PositionsStrictlyIncrease(), "positions increase");
-            Check(t.Q1.MaxDenominator() <= 1L << 40 && t.Q2.MaxDenominator() <= 1L << 40, "denominators bounded");
+            Check(Lists(t).All(q => q.PositionsStrictlyIncrease()), "positions increase");
+            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 40), "denominators bounded");
         }
 
         public static void WideNode() {
-            var t = new DTree();
+            var t = NewTree();
             for (int i = 0; i < 5000; i++) t.Insert("r", $"c{i}");
             Equal(t.SubtreeSize("r"), 5001, "subtree size");
             Check(!t.CanReach("c1", "c2"), "siblings unconnected");
-            Seq(t.Q2.ToList().Take(3), new[] { "r", "c4999", "c4998" }, "Q2 start");
-            Check(t.Q2.PositionsStrictlyIncrease(), "Q2 positions increase");
+            if (Two(t)) Seq(t.Q2.ToList().Take(3), new[] { "r", "c4999", "c4998" }, "Q2 start");
+            Check(Lists(t).All(q => q.PositionsStrictlyIncrease()), "positions increase");
         }
 
         public static void StarNeedsNoRenumbering() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("r", "x");
             t.Insert("r", "y");
             for (int i = 0; i < 5000; i++) t.Insert("x", $"c{i}");
-            Equal((t.Q1.RenumberCount, t.Q2.RenumberCount), (0L, 0L), "no renumbering for a star");
+            if (t.Positions == Positions.Rational)               // integer positions halve the gap every time
+                Check(Lists(t).All(q => q.RenumberCount == 0), "no renumbering for a star");
             Check(t.CanReach("x", "c4999"), "x reaches c4999");
             Check(!t.CanReach("c0", "c1"), "siblings unconnected");
         }
 
         public static void AlternatingWorstCase() {
-            var t = new DTree();
+            var t = NewTree();
             var left = "n0";
             for (int i = 1; i < 4000; i++) {
                 t.Insert(left, $"n{i}");
                 if (i % 2 == 0) left = $"n{i}";
             }
-            Check(t.Q2.RenumberCount > 0, "alternating insertions force renumbering");
+            Check(Lists(t).Sum(q => q.RenumberCount) > 0, "alternating insertions force renumbering");
             Check(t.Q1.PositionsStrictlyIncrease(), "Q1 positions increase");
-            Check(t.Q2.PositionsStrictlyIncrease(), "Q2 positions increase");
-            Check(t.Q1.MaxDenominator() <= 1L << 40 && t.Q2.MaxDenominator() <= 1L << 40, "denominators bounded");
+            Check(Lists(t).All(q => q.PositionsStrictlyIncrease()), "positions increase");
+            Check(Lists(t).All(q => q.MaxDenominator() <= 1L << 40), "denominators bounded");
         }
 
         public static void GrowthAtBothEnds() {
@@ -621,7 +661,7 @@ namespace DirectedTrees.Tests {
 
     internal static partial class Tests {
         public static void NodeHandles() {
-            var t = new DTree();
+            var t = NewTree();
             var b = t.Insert("A", "B");
             var c = t.Insert(b, "C");
             var d = t.Insert("A", "D");
@@ -639,7 +679,7 @@ namespace DirectedTrees.Tests {
             t.Delete(b);
             Check(!b.IsInTree && !t.CanReach(a, b), "deleted handle no longer reaches or is reached");
             Throws<ArgumentException>(() => t.Insert(b, "E"), "Insert under a deleted handle");
-            var other = new DTree("other");
+            var other = NewTree("other");
             var x = other.Insert("X", "Y");
             Check(!t.CanReach(a, x), "handles of another tree are not reachable");
             Throws<ArgumentException>(() => t.Delete(x), "Delete with a handle of another tree");
@@ -677,7 +717,7 @@ namespace DirectedTrees.Tests {
         }
 
         private static (DTree, Reference) Build(params (string, string)[] edges) {
-            var t = new DTree();
+            var t = NewTree();
             var r = new Reference();
             foreach (var (u, v) in edges) {
                 t.Insert(u, v);
@@ -789,7 +829,7 @@ namespace DirectedTrees.Tests {
                     }
                 }
             }
-            var t2 = new DTree();
+            var t2 = NewTree();
             t2.Insert("a", "b");
             var u2 = t2.UMin(new[] { "b" });
             u2.Discard("a").Discard("nobody");
@@ -863,7 +903,7 @@ namespace DirectedTrees.Tests {
         }
 
         public static void SiblingInsertExample() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             t.Insert("A", "D");
             t.Insert("B", "C");
@@ -873,7 +913,7 @@ namespace DirectedTrees.Tests {
             Seq(t.Children("A"), new[] { "W", "B", "X", "D" }, "children of A");
             Seq(t.Children("B"), new[] { "C0", "C" }, "children of B");
             Seq(t.Q1.ToList(), new[] { "A", "W", "B", "C0", "C", "X", "D" }, "Q1");
-            Seq(t.Q2.ToList(), new[] { "A", "D", "X", "B", "C", "C0", "W" }, "Q2");
+            if (Two(t)) Seq(t.Q2.ToList(), new[] { "A", "D", "X", "B", "C", "C0", "W" }, "Q2");
             Check(t.CanReach("A", "X") && !t.CanReach("B", "X"), "X is a child of A, not of B");
             Equal(t.SubtreeLast("A"), "D", "SubtreeLast(A)");
             Throws<InvalidOperationException>(() => t.InsertAfter("A", "Z"), "the root has no siblings");
@@ -886,7 +926,7 @@ namespace DirectedTrees.Tests {
         }
 
         public static void SiblingInsertLines() {
-            var t = new DTree();
+            var t = NewTree();
             t.AddLine("A: B; D");
             t.AddLine("B > X; Y");                                      // X after B, Y after X
             t.AddLine("D < W1; W2");                                    // W1 before D, W2 before D
@@ -940,7 +980,7 @@ namespace DirectedTrees.Tests {
 
         public static void SiblingInsertSameGap() {
             // repeated insertion into the same gap from both sides: positions stay strictly increasing
-            var t = new DTree();
+            var t = NewTree();
             var r = new Reference();
             t.Insert("r", "a"); r.Insert("r", "a");
             t.Insert("r", "b"); r.Insert("r", "b");
@@ -958,7 +998,7 @@ namespace DirectedTrees.Tests {
         public static void SubtreeEndTopDownComb() {
             // a chain, then new leaves under the spine nodes from the top down: the plain walk
             // would be O(depth) per insertion here
-            var t = new DTree();
+            var t = NewTree();
             var r = new Reference();
             const int d = 300;
             for (int i = 1; i < d; i++) {
@@ -1019,7 +1059,7 @@ namespace DirectedTrees.Tests {
     /// <summary>Tests for 2.1.0: the points of Onur Safi's review of DTree 1.8.0.</summary>
     internal static partial class Tests {
         private static (DTree, Reference) Chain(int depth) {
-            var t = new DTree();
+            var t = NewTree();
             var r = new Reference();
             t.Insert("r", "c0");
             r.Insert("r", "c0");
@@ -1075,7 +1115,7 @@ namespace DirectedTrees.Tests {
         }
 
         public static void ReviewManySiblings() {
-            var t = new DTree();
+            var t = NewTree();
             var r = new Reference();
             t.Insert("r", "p");
             r.Insert("r", "p");
@@ -1089,17 +1129,17 @@ namespace DirectedTrees.Tests {
         }
 
         public static void ClosingCellsComeAndGo() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             Seq(RawCells(t.List1), new[] { "A", "B", ")A" }, "after A: B");
             t.Insert("B", "C");
             Seq(RawCells(t.List1), new[] { "A", "B", "C", ")B", ")A" }, "after B: C (Q1)");
-            Seq(RawCells(t.List2), new[] { "A", "B", "C", ")B", ")A" }, "after B: C (Q2)");
+            if (Two(t)) Seq(RawCells(t.List2!), new[] { "A", "B", "C", ")B", ")A" }, "after B: C (Q2)");
             t.Delete("C");                                              // B has no children left
             Seq(RawCells(t.List1), new[] { "A", "B", ")A" }, "after Delete(C)");
             t.DeleteSubtree("B");
             Seq(RawCells(t.List1), new[] { "A" }, "after DeleteSubtree(B), Q1");
-            Seq(RawCells(t.List2), new[] { "A" }, "after DeleteSubtree(B), Q2");
+            if (Two(t)) Seq(RawCells(t.List2!), new[] { "A" }, "after DeleteSubtree(B), Q2");
             t.Insert("A", "B");
             t.Insert("A", "C");
             t.CutNPaste("C", "B");
@@ -1109,7 +1149,7 @@ namespace DirectedTrees.Tests {
         /// <summary>Everything an operation could change: both lists cell by cell, positions, parents, children, names.</summary>
         private static string Snapshot(DTree t) {
             var sb = new StringBuilder();
-            foreach (var q in new[] { t.List1, t.List2 }) {
+            foreach (var q in Lists(t)) {
                 for (DList.Cell? c = q.FirstCell; c != null; c = c.Next)
                     sb.Append(c.Name ?? ")" + ((DNode)c.Node!).Name).Append('@').Append(c.Num).Append('/').Append(c.Den).Append(' ');
                 sb.Append('|');
@@ -1132,15 +1172,15 @@ namespace DirectedTrees.Tests {
                 ("Insert(SOURCE, B)", t => t.Insert(Marker.Source, "B"), typeof(ArgumentException)),
             };
             foreach (var (name, op, exception) in cases) {
-                var t = new DTree();
+                var t = NewTree();
                 try {
                     op(t);
                     Check(false, $"{name}: expected {exception.Name}");
                 } catch (Exception e) {
                     Check(exception.IsInstanceOfType(e), $"{name}: expected {exception.Name}, got {e.GetType().Name}");
                 }
-                Check(t.Size == 0 && t.Root == null && t.Q1.Count == 0 && t.Q2.Count == 0, $"{name}: tree stays empty");
-                Equal(RawCells(t.List1).Count + RawCells(t.List2).Count, 0, $"{name}: no cells");
+                Check(t.Size == 0 && t.Root == null && t.Q1.Count == 0 && (!Two(t) || t.Q2.Count == 0), $"{name}: tree stays empty");
+                Equal(Lists(t).Sum(q => RawCells(q).Count), 0, $"{name}: no cells");
                 t.Insert("A", "B");                                     // the tree is still usable
                 Seq(t.Q1.ToList(), new[] { "A", "B" }, $"{name}: usable afterwards");
             }
@@ -1149,7 +1189,7 @@ namespace DirectedTrees.Tests {
         public static void NoPartialStateFailingOperations() {
             var (t, _, _) = RandomTree(30, 4);
             t.InsertAfter("n1", "s1");
-            var other = new DTree("other").Insert("X", "Y");
+            var other = NewTree("other").Insert("X", "Y");
             var gone = t.Insert("n3", "gone");
             t.Delete(gone);
             string? none = null;
@@ -1188,14 +1228,14 @@ namespace DirectedTrees.Tests {
             var path = System.IO.Path.GetTempFileName();
             try {
                 File.WriteAllText(path, "A: B\njust text\nB: C\n");
-                Throws<ArgumentException>(() => DTree.FromFile(path), "a line without ':', '>' or '<'");
+                Throws<ArgumentException>(() => TreeFromFile(path), "a line without ':', '>' or '<'");
             } finally {
                 File.Delete(path);
             }
         }
 
         public static void ReadOnlyProjections() {
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("A", "B");
             t.Insert("B", "C");
             t.Insert("A", "D");
@@ -1205,7 +1245,7 @@ namespace DirectedTrees.Tests {
             var q1 = t.Q1;
             Seq(q1, new[] { "A", "B", "C", "D" }, "Q1 nodes");
             Seq(q1.ToList(true), new[] { Marker.Source, "A", "B", "C", "D", Marker.Sink }, "Q1 with markers");
-            Seq(t.Q2, new[] { "A", "D", "B", "C" }, "Q2 nodes");
+            if (Two(t)) Seq(t.Q2, new[] { "A", "D", "B", "C" }, "Q2 nodes");
             Equal(q1.Count, 4, "Count");
             Equal(q1.Next("C"), "D", "Next passes over the closing cell of B");
             Equal(q1.Prev("D"), "C", "Prev passes over the closing cell of B");
@@ -1215,7 +1255,7 @@ namespace DirectedTrees.Tests {
             Check(q1.IsSelfOrLeftOf("B", "B") && q1.IsSelfOrRightOf("B", "B"), "self-or");
             Check(q1.Contains("C") && !q1.Contains("Z") && q1.IsAllocated("C") && q1.IsNotAllocated("Z"), "membership");
             Check(q1.IndexValue("C") < q1.IndexValue("D") && q1.Index("Z") == null, "Index");
-            Check(q1.IsSameAs(t.Q1) && !q1.IsSameAs(t.Q2), "IsSameAs");
+            Check(q1.IsSameAs(t.Q1) && (!Two(t) || !q1.IsSameAs(t.Q2)), "IsSameAs");
             Equal(q1.ToString(), "P1.Q1: [A, B, C, D]", "ToString");
             Check(ReferenceEquals(t.Q1, q1), "one live view per list");
             t.Insert("C", "E");
@@ -1223,7 +1263,7 @@ namespace DirectedTrees.Tests {
         }
 
         private static (DTree, DNode) StrictTree(bool strict) {
-            var t = new DTree("S", strict);
+            var t = NewTree("S", strict);
             t.Insert("A", "B");
             t.Insert("B", "C");
             var gone = t.Insert("A", "X");
@@ -1283,14 +1323,14 @@ namespace DirectedTrees.Tests {
             umin.Discard("nobody");
             var dir = FindExamples();
             if (dir != null) {
-                var f = DTree.FromFile(System.IO.Path.Combine(dir, "siblings.csx"), strict: true);
+                var f = TreeFromFile(System.IO.Path.Combine(dir, "siblings.csx"), strict: true);
                 Throws<KeyNotFoundException>(() => f.CanReach("01", "nobody"), "FromFile(strict: true)");
             }
         }
 
         public static void ReusedNameIsNotAMember() {
             // a member that was deleted stays out, even when a new node gets its name
-            var t = new DTree();
+            var t = NewTree();
             t.Insert("r", "X");
             t.Insert("r", "Y");
             var c = ConstructedNodes.Of(t, new[] { "X" });
@@ -1304,12 +1344,210 @@ namespace DirectedTrees.Tests {
         }
 
         public static void IsRootEmptyAndNull() {
-            var t = new DTree();
+            var t = NewTree();
             string? none = null;
             Check(!t.IsRoot(none) && !t.IsRoot("A"), "empty tree has no root");
             t.Insert("A", "B");
             Check(t.IsRoot("A") && t.IsRoot(t.GetNode("A")), "A is the root");
             Check(!t.IsRoot("B") && !t.IsRoot(none), "B and null are not");
+        }
+    }
+
+    /// <summary>Tests of the prior-art contenders used by the benchmarks.</summary>
+    internal static partial class Tests {
+        public static void PriorArtContenders() {
+            foreach (var (n, depth, seeds) in new[] { (120, 0, 10), (300, 150, 5) }) {
+                for (int seed = 0; seed < seeds; seed++) {
+                    var rnd = new Random(seed);
+                    var parent = new int[n];
+                    var e = new EulerTour();
+                    var ei = new EulerTourInt();
+                    var ef = new EulerTourNum<double>();
+                    var ed = new EulerTourNum<decimal>();
+                    var p = new PrePostNumbers();
+                    for (int i = 1; i < n; i++) {
+                        parent[i] = depth > 0 && i < depth ? i - 1 : rnd.Next(depth > 0 ? Math.Min(depth, i) : i);
+                        e.Insert($"n{parent[i]}", $"n{i}");
+                        ei.Insert($"n{parent[i]}", $"n{i}");
+                        ef.Insert($"n{parent[i]}", $"n{i}");
+                        ed.Insert($"n{parent[i]}", $"n{i}");
+                        p.Insert(parent[i], i);
+                    }
+                    Seq(ei.List, e.List, "integer and rational Euler tours list the nodes alike");
+                    Seq(ef.List, e.List, "double and rational Euler tours list the nodes alike");
+                    Seq(ed.List, e.List, "decimal and rational Euler tours list the nodes alike");
+                    bool Anc(int a, int v) { for (int w = v; w != 0; ) { w = parent[w]; if (w == a) return true; } return false; }
+                    Equal(e.Count, n, "Euler tour size");
+                    for (int q = 0; q < 400; q++) {
+                        int u = rnd.Next(n), v = rnd.Next(n);
+                        bool expected = Anc(u, v);
+                        Equal(e.CanReach($"n{u}", $"n{v}"), expected, $"Euler CanReach({u}, {v})");
+                        Equal(p.CanReach(u, v), expected, $"pre/post CanReach({u}, {v})");
+                        Equal(ei.CanReach($"n{u}", $"n{v}"), expected, $"integer Euler CanReach({u}, {v})");
+                        Equal(ef.CanReach($"n{u}", $"n{v}"), expected, $"double Euler CanReach({u}, {v})");
+                        Equal(ed.CanReach($"n{u}", $"n{v}"), expected, $"decimal Euler CanReach({u}, {v})");
+                    }
+                    foreach (int k in new[] { 1, 2, 5, 20 }) {
+                        var set = Enumerable.Range(0, n).OrderBy(_ => rnd.Next()).Take(k).ToList();
+                        var es = e.Set(set.Select(x => e.GetNode($"n{x}")));
+                        var ns = p.Set(set);
+                        for (int x = 0; x < n; x++) {
+                            var h = e.GetNode($"n{x}");
+                            bool all = set.All(s => Anc(x, s)), some = set.Any(s => Anc(x, s));
+                            bool byAll = set.All(s => Anc(s, x)), bySome = set.Any(s => Anc(s, x));
+                            Check(es.ReachesAll(h) == all && ns.ReachesAll(x) == all, $"reaches all ({x})");
+                            Check(es.ReachesSome(h) == some && ns.ReachesSome(x) == some, $"reaches some ({x})");
+                            Check(es.ReachedByAll(h) == byAll && ns.ReachedByAll(x) == byAll, $"reached by all ({x})");
+                            Check(es.ReachedBySome(h) == bySome && ns.ReachedBySome(x) == bySome, $"reached by some ({x})");
+                        }
+                    }
+                }
+            }
+            var chain = new EulerTour();
+            for (int i = 1; i < 3000; i++) chain.Insert($"n{i - 1}", $"n{i}");
+            Check(chain.List.PositionsStrictlyIncrease(), "Euler chain: positions increase");
+            Check(chain.CanReach("n0", "n2999") && !chain.CanReach("n2999", "n0"), "Euler chain: reachability");
+        }
+
+        public static void PriorArtIntegerLabels() {
+            foreach (int msd in new[] { 0, 2, 10 }) IntegerLabels(msd);
+        }
+
+        private static void IntegerLabels(int msd) {
+            var rnd = new Random(3);
+            var q = new IntList(msd);
+            var reference = new List<string>();
+            var cells = new Dictionary<string, ICell>();
+            for (int i = 0; i < 30_000; i++) {
+                var name = $"v{i}";
+                if (reference.Count == 0 || rnd.NextDouble() < 0.2) {
+                    cells[name] = q.InsertNewAfter(name, q.First);
+                    reference.Insert(0, name);
+                } else {
+                    int[] spots = { 0, reference.Count / 2, reference.Count - 1, rnd.Next(reference.Count) };
+                    int j = spots[rnd.Next(spots.Length)];
+                    cells[name] = q.InsertNewAfter(name, cells[reference[j]]);
+                    reference.Insert(j + 1, name);
+                }
+            }
+            Seq(q, reference, "IntList order matches a plain list");
+            Check(q.LabelsStrictlyIncrease(), "IntList labels increase");
+            Check(q.RenumberCount > 0, "hot spots force relabeling");
+            var e = new EulerTourInt();
+            for (int i = 1; i < 5000; i++) e.Insert($"n{i - 1}", $"n{i}");
+            Check(e.List.LabelsStrictlyIncrease(), "integer Euler chain: labels increase");
+            Check(e.CanReach("n0", "n4999") && !e.CanReach("n4999", "n0"), "integer Euler chain: reachability");
+            var a = new IntList();
+            var c = a.First;
+            for (int i = 0; i < 5000; i++) c = a.InsertNewAfter($"a{i}", c);   // append at the end
+            Check(a.LabelsStrictlyIncrease(), "appends: labels increase");
+        }
+
+        public static void PriorArtFloatingPositions() {
+            foreach (int msd in new[] { 0, 2, 10 }) FloatingPositions<double>($"double, msd {msd}", msd);
+            foreach (int msd in new[] { 0, 10 }) FloatingPositions<decimal>($"decimal, msd {msd}", msd);
+        }
+
+        private static void FloatingPositions<T>(string kind, int msd) where T : struct, System.Numerics.INumber<T> {
+            var rnd = new Random(5);
+            var q = new NumList<T>(msd);
+            var reference = new List<string>();
+            var cells = new Dictionary<string, NCell<T>>();
+            for (int i = 0; i < 20_000; i++) {
+                var name = $"v{i}";
+                if (reference.Count == 0 || rnd.NextDouble() < 0.2) {
+                    cells[name] = q.InsertNewAfter(name, q.First);
+                    reference.Insert(0, name);
+                } else {
+                    int[] spots = { 0, reference.Count / 2, reference.Count - 1, rnd.Next(reference.Count) };
+                    int j = spots[rnd.Next(spots.Length)];
+                    cells[name] = q.InsertNewAfter(name, cells[reference[j]]);
+                    reference.Insert(j + 1, name);
+                }
+            }
+            Seq(q, reference, $"{kind}: order matches a plain list");
+            Check(q.LabelsStrictlyIncrease(), $"{kind}: positions increase");
+            Check(q.RenumberCount > 0, $"{kind}: hot spots force respacing");
+            var e = new EulerTourNum<T>(msd);
+            for (int i = 1; i < 3000; i++) e.Insert($"n{i - 1}", $"n{i}");
+            Check(e.List.LabelsStrictlyIncrease(), $"{kind} Euler chain: positions increase");
+            Check(e.CanReach("n0", "n2999") && !e.CanReach("n2999", "n0"), $"{kind} Euler chain: reachability");
+        }
+
+        public static void PriorArtLazy() {
+            var p = new PrePostNumbers();
+            for (int i = 1; i < 50; i++) p.Insert(i - 1, i);
+            Equal(p.Recomputations, 0, "insertions only mark the numbers stale");
+            for (int q = 0; q < 10; q++) p.CanReach(0, 49);
+            Equal(p.Recomputations, 1, "one traversal for ten queries");
+            p.Insert(0, 50);
+            Check(!p.CanReach(49, 50), "49 does not reach 50");
+            Equal(p.Recomputations, 2, "recomputed after the change");
+        }
+    }
+
+    /// <summary>Tests for 2.2.0: EulerTree and integer positions.</summary>
+    internal static partial class Tests {
+        public static void EulerSpecifics() {
+            var t = new EulerTree();
+            t.Insert("A", "B");
+            Throws<NotSupportedException>(() => _ = t.Q2, "an EulerTree has no Q2");
+            Equal(t.ToString(), "EulerTree('E1', size=2)\n  E1.Q1: [A, B]", "ToString");
+            Check(t.Positions == Positions.Rational && new EulerTree(positions: Positions.Integer).Positions == Positions.Integer, "Positions");
+            var leaves = new EulerTree();
+            foreach (var c in new[] { "B", "C", "D" }) leaves.Insert("A", c);
+            Seq(RawCells(leaves.List1), new[] { "A", "B", "C", "D", ")A" }, "leaves need no closing cell");
+            for (int seed = 0; seed < 5; seed++) {
+                var rnd = new Random(seed);
+                var d = new DTree("D");
+                var e = new EulerTree("E", positions: Positions.Integer);
+                var names = new List<string> { "n0" };
+                for (int i = 1; i < 150; i++) {
+                    var p = names[rnd.Next(names.Count)];
+                    d.Insert(p, $"n{i}");
+                    e.Insert(p, $"n{i}");
+                    names.Add($"n{i}");
+                }
+                Seq(e.Q1, d.Q1, "same Q1");
+                for (int q = 0; q < 500; q++) {
+                    string u = names[rnd.Next(names.Count)], v = names[rnd.Next(names.Count)];
+                    Equal(e.CanReach(u, v), d.CanReach(u, v), $"CanReach({u}, {v})");
+                }
+            }
+        }
+
+        public static void DListIntegerPositions() {
+            var q = new DList("Q", Positions.Integer);
+            Equal(q.Kind, Positions.Integer, "Kind");
+            for (int i = 0; i < 20_000; i++) q.InsertBefore($"v{i}", Marker.Sink);   // appends halve the gap to SINK: relabeling
+            Check(q.RenumberCount > 0, "appends force relabeling");
+            Check(q.PositionsStrictlyIncrease(), "positions increase");
+            Equal(q.IndexValue(Marker.Source), double.NegativeInfinity, "SOURCE");
+            Equal(q.IndexValue(Marker.Sink), double.PositiveInfinity, "SINK");
+            Check(q.All(n => q.Index(n) is (long num, 1L) && num > 0 && num < 1L << 62), "labels are integers in (0, 2^62)");
+            var r = new DList("R", Positions.Integer);
+            var reference = new List<string>();
+            var rnd = new Random(7);
+            for (int i = 0; i < 20_000; i++) {
+                double x = rnd.NextDouble();
+                if (reference.Count > 0 && x < 0.15) {
+                    var v = reference[rnd.Next(reference.Count)];
+                    r.Remove(v);
+                    reference.Remove(v);
+                    continue;
+                }
+                var name = $"v{i}";
+                if (reference.Count == 0 || x < 0.25) {
+                    r.InsertAfter(name, Marker.Source);
+                    reference.Insert(0, name);
+                } else {
+                    int j = rnd.Next(reference.Count);
+                    r.InsertAfter(name, reference[j]);
+                    reference.Insert(j + 1, name);
+                }
+            }
+            Seq(r, reference, "integer positions: order matches a plain list");
+            Check(r.PositionsStrictlyIncrease(), "integer positions increase");
         }
     }
 
@@ -1329,7 +1567,7 @@ namespace DirectedTrees.Tests {
         public static void RunBench(string[] args) {
             // Same number format as the Python report (10,000 and 0.013), whatever the system's culture.
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            bool save = true, dynamic = false, review = false;
+            bool save = true, dynamic = false, review = false, priorArt = false, euler = false;
             string note = "";
             var sizes = new List<int>();
             for (int i = 0; i < args.Length; i++) {
@@ -1337,6 +1575,8 @@ namespace DirectedTrees.Tests {
                 else if (args[i] == "--note" && i + 1 < args.Length) note = args[++i];
                 else if (args[i] == "dynamic") dynamic = true;
                 else if (args[i] == "review") review = true;
+                else if (args[i] == "prior-art") priorArt = true;
+                else if (args[i] == "euler") euler = true;
                 else sizes.Add(int.Parse(args[i], CultureInfo.InvariantCulture));
             }
             var started = DateTime.Now;
@@ -1344,7 +1584,9 @@ namespace DirectedTrees.Tests {
             var tee = save ? new Tee(console) : null;
             if (tee != null) System.Console.SetOut(tee);
             try {
-                if (review) Bench.RunReview();
+                if (euler) Bench.RunEuler();
+                else if (priorArt) Bench.RunPriorArt();
+                else if (review) Bench.RunReview();
                 else if (dynamic) Bench.RunDynamic();
                 else Bench.Run(sizes.ToArray());
             } finally {
@@ -1457,6 +1699,22 @@ namespace DirectedTrees.Tests {
             Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
             TreeView(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 20_000);
             Review();
+            PriorArt();
+            Positions();
+            PlacementRules();
+            EulerTrees();
+        }
+
+        public static void RunEuler() {
+            Console.WriteLine($"DTree benchmarks (C#, .NET {Environment.Version})");
+            EulerTrees();
+        }
+
+        public static void RunPriorArt() {
+            Console.WriteLine($"DTree benchmarks (C#, .NET {Environment.Version})");
+            PriorArt();
+            Positions();
+            PlacementRules();
         }
 
         public static void RunReview() {
@@ -1568,6 +1826,613 @@ namespace DirectedTrees.Tests {
                 long after = GC.GetTotalMemory(true);
                 Console.WriteLine($"| {label} | {n:N0} | {(after - before) / (double)n:N0} |");
                 GC.KeepAlive(obj);
+            }
+        }
+
+        // -- comparison with prior art ----------------------------------------------------------
+
+        private static (double Ms, List<bool> Answers) RunEuler(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = new EulerTour("E");
+            var nodes = new ENode[steps.Length + 1];
+            foreach (var s in steps) {
+                if (s.Child == 1) {
+                    nodes[1] = t.Insert("n0", "n1");
+                    nodes[0] = t.GetNode("n0");
+                } else {
+                    nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                }
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static (double Ms, List<bool> Answers) RunPrePost(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = new PrePostNumbers();
+            foreach (var s in steps) {
+                t.Insert(s.Parent, s.Child);
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(u, v));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        /// <summary>Insertions as in Workload; after every batch insertions, batch queries between random nodes
+        /// present at that moment (one query per insertion on average).</summary>
+        private static Step[] BatchedWorkload(int n, int depth, int batch, int seed = 7) {
+            var rnd = new Random(seed);
+            var steps = new Step[n - 1];
+            var none = Array.Empty<(int, int)>();
+            for (int i = 1; i < n; i++) {
+                int parent = i < depth ? i - 1 : rnd.Next(Math.Min(depth, i));
+                var qs = none;
+                if (i % batch == 0) {
+                    qs = new (int, int)[batch];
+                    for (int q = 0; q < batch; q++) qs[q] = (rnd.Next(i + 1), rnd.Next(i + 1));
+                }
+                steps[i - 1] = new Step(parent, i, qs);
+            }
+            return steps;
+        }
+
+        private static (EulerTour Tree, double Seconds) BuildEuler(int shape, int n, int seed = 1) {
+            var rnd = new Random(seed);
+            var t = new EulerTour("B");
+            var names = new List<string> { "n0" };
+            var sw = Stopwatch.StartNew();
+            for (int i = 1; i < n; i++) {
+                t.Insert(Shapes[shape].Parent(i, names, rnd), $"n{i}");
+                names.Add($"n{i}");
+            }
+            return (t, sw.Elapsed.TotalSeconds);
+        }
+
+        private static void PriorArt() {
+            const int nBuild = 100_000, nDyn = 100_000, setN = 100_000, setDepth = 1_000, k = 1_000, queries = 100_000;
+            int[] depths = { 10, 1_000, 10_000, 100_000 };
+            int[] batches = { 10, 100, 1_000 };
+            RunEuler(Workload(1_000, 10, 1));                           // warm-up (JIT)
+            RunPrePost(BatchedWorkload(1_000, 10, 10));
+            BuildEuler(0, 1_000);
+            Console.WriteLine("\nComparison with prior art\n");
+            Console.WriteLine("Contenders: DTree (two lists, Q1 and Q2); the parenthesis (Euler-tour) encoding, every node an open and a close cell in one list, with the same rational positions (DList); pre/post numbers from a traversal, recomputed lazily, only before a query that follows a change; and the parent walk as before. All answers are checked against each other.\n");
+
+            Console.WriteLine($"Building trees ({nBuild:N0} nodes)\n");
+            Console.WriteLine("| shape | DTree [s] | Euler tour [s] | renumberings DTree Q1 / Q2 | renumberings Euler tour |");
+            Console.WriteLine("| --- | ---: | ---: | ---: | ---: |");
+            for (int s = 0; s < Shapes.Length; s++) {
+                var (t, _, dt) = Build(s, nBuild);
+                var (e, de) = BuildEuler(s, nBuild);
+                Console.WriteLine($"| {Shapes[s].Name} | {dt:F3} | {de:F3} | {t.Q1.RenumberCount:N0} / {t.Q2.RenumberCount:N0} | {e.List.RenumberCount:N0} |");
+            }
+
+            Console.WriteLine($"\nInsertions with one query each ({nDyn:N0} nodes, node handles; µs per step, best of three runs)\n");
+            Console.WriteLine("| depth | DTree | Euler tour | parent walk |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: |");
+            foreach (var depth in depths) {
+                var steps = Workload(nDyn, depth, 1);
+                var (d, a) = Best(RunDTree, steps);
+                var (e, b) = Best(RunEuler, steps);
+                var (w, c) = Best(RunParentWalk, steps);
+                if (!a.SequenceEqual(b) || !a.SequenceEqual(c)) throw new InvalidOperationException("prior art: answers disagree");
+                Console.WriteLine($"| {depth:N0} | {d * 1000 / steps.Length:F3} | {e * 1000 / steps.Length:F3} | {w * 1000 / steps.Length:F3} |");
+            }
+
+            const int batchDepth = 1_000;
+            Console.WriteLine($"\nInsertions and queries in batches ({nDyn:N0} nodes, depth {batchDepth:N0}; µs per insertion with its share of the queries)\n");
+            Console.WriteLine("After every b insertions come b queries, so there is one query per insertion on average; pre/post numbers are recomputed once per batch.\n");
+            Console.WriteLine("| batch b | DTree | Euler tour | pre/post, lazy | parent walk |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: | ---: |");
+            foreach (var bs in batches) {
+                var steps = BatchedWorkload(nDyn, batchDepth, bs);
+                var (d, a) = Best(RunDTree, steps);
+                var (e, b) = Best(RunEuler, steps);
+                var (r, c) = Best(RunPrePost, steps);
+                var (w, x) = Best(RunParentWalk, steps);
+                if (!a.SequenceEqual(b) || !a.SequenceEqual(c) || !a.SequenceEqual(x)) throw new InvalidOperationException("prior art: answers disagree");
+                int m = steps.Length;
+                Console.WriteLine($"| {bs:N0} | {d * 1000 / m:F3} | {e * 1000 / m:F3} | {r * 1000 / m:F3} | {w * 1000 / m:F3} |");
+            }
+
+            Console.WriteLine($"\nAnd/or queries ({setN:N0} nodes, depth {setDepth:N0}, set of {k:N0} nodes, {queries:N0} query nodes; µs per query)\n");
+            Console.WriteLine("Each encoding answers with its own constructed points: DTree with VMin, VMax, UMin, UMax; the Euler tour with the minimum and maximum open and close positions over the set; pre/post numbers with the same over their numbers. The \"some\" questions use the members in order and one test in all three.\n");
+            var rnd = new Random(4);
+            var tree = new DTree("S");
+            var euler = new EulerTour("S");
+            var pp = new PrePostNumbers();
+            for (int i = 1; i < setN; i++) {
+                int p = i < setDepth ? i - 1 : rnd.Next(setDepth);
+                tree.Insert($"n{p}", $"n{i}");
+                euler.Insert($"n{p}", $"n{i}");
+                pp.Insert(p, i);
+            }
+            var set = Enumerable.Range(0, setN).OrderBy(_ => rnd.Next()).Take(k).ToList();
+            var us = Enumerable.Range(0, queries).Select(_ => rnd.Next(setN)).ToArray();
+            var sw = Stopwatch.StartNew();
+            var setNodes = set.Select(x => tree.GetNode($"n{x}")).ToList();
+            var vmin = tree.VMin(setNodes); var vmax = tree.VMax(setNodes); var umin = tree.UMin(setNodes); var umax = tree.UMax(setNodes);
+            double bd = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            var es = euler.Set(set.Select(x => euler.GetNode($"n{x}")));
+            double be = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            var ns = pp.Set(set);
+            double bp = sw.Elapsed.TotalMilliseconds;
+            var th = us.Select(x => tree.GetNode($"n{x}")).ToArray();
+            var eh = us.Select(x => euler.GetNode($"n{x}")).ToArray();
+            Console.WriteLine("| question | DTree | Euler tour | pre/post |");
+            Console.WriteLine("| --- | ---: | ---: | ---: |");
+            var questions = new (string Name, Func<DNode, bool> D, Func<ENode, bool> E, Func<int, bool> P)[] {
+                ("reaches all", vmin.ReachesAll, es.ReachesAll, ns.ReachesAll),
+                ("reaches some", vmax.ReachesSome, es.ReachesSome, ns.ReachesSome),
+                ("reached by all", umax.ReachedByAll, es.ReachedByAll, ns.ReachedByAll),
+                ("reached by some", umin.ReachedBySome, es.ReachedBySome, ns.ReachedBySome),
+            };
+            foreach (var (name, fd, fe, fp) in questions) {
+                for (int i = 0; i < 100; i++) { fd(th[i]); fe(eh[i]); fp(us[i]); }   // warm-up (JIT)
+                var ra = new bool[queries]; var rb = new bool[queries]; var rc = new bool[queries];
+                sw.Restart();
+                for (int i = 0; i < queries; i++) ra[i] = fd(th[i]);
+                double d = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                sw.Restart();
+                for (int i = 0; i < queries; i++) rb[i] = fe(eh[i]);
+                double e = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                sw.Restart();
+                for (int i = 0; i < queries; i++) rc[i] = fp(us[i]);
+                double r = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                if (!ra.SequenceEqual(rb) || !ra.SequenceEqual(rc)) throw new InvalidOperationException($"prior art: {name} disagrees");
+                Console.WriteLine($"| {name} | {d:F3} | {e:F3} | {r:F3} |");
+            }
+            Console.WriteLine($"\n(Building the constructed points of {k:N0} nodes: DTree, all four, {bd:F2} ms; Euler tour {be:F2} ms; pre/post {bp:F2} ms.)");
+
+            Console.WriteLine("\nMemory, measured with GC.GetTotalMemory\n");
+            Console.WriteLine("| structure | nodes | bytes per node |");
+            Console.WriteLine("| --- | ---: | ---: |");
+            foreach (var (label, make) in new (string, Func<object>)[] {
+                         ("DTree, random tree", () => Build(0, nBuild).Tree),
+                         ("Euler tour, random tree", () => BuildEuler(0, nBuild).Tree),
+                         ("pre/post numbers, random tree", () => {
+                             var x = new PrePostNumbers();
+                             var r = new Random(1);
+                             for (int i = 1; i < nBuild; i++) x.Insert(r.Next(i), i);
+                             x.Refresh();
+                             return x;
+                         }),
+                     }) {
+                long before = GC.GetTotalMemory(true);
+                var obj = make();
+                long after = GC.GetTotalMemory(true);
+                Console.WriteLine($"| {label} | {nBuild:N0} | {(after - before) / (double)nBuild:N0} |");
+                GC.KeepAlive(obj);
+            }
+        }
+
+        // -- rational against integer positions --------------------------------------------------
+
+        private static (double Ms, List<bool> Answers) RunEulerInt(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = new EulerTourInt();
+            var nodes = new ENodeInt[steps.Length + 1];
+            foreach (var s in steps) {
+                if (s.Child == 1) {
+                    nodes[1] = t.Insert("n0", "n1");
+                    nodes[0] = t.GetNode("n0");
+                } else {
+                    nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                }
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static (EulerTourInt Tree, double Seconds) BuildEulerInt(int shape, int n, int seed = 1) {
+            var rnd = new Random(seed);
+            var t = new EulerTourInt();
+            var names = new List<string> { "n0" };
+            var sw = Stopwatch.StartNew();
+            for (int i = 1; i < n; i++) {
+                t.Insert(Shapes[shape].Parent(i, names, rnd), $"n{i}");
+                names.Add($"n{i}");
+            }
+            return (t, sw.Elapsed.TotalSeconds);
+        }
+
+        private static readonly string[] ListPatterns = {
+            "append", "prepend", "both ends, alternating", "one gap, from one side", "one gap, alternating sides", "hot spots" };
+
+        /// <summary>Insert n cells with a pattern, at the cell level. first, last and insert abstract over DList and IntList.</summary>
+        private static double GrowList<TCell>(TCell first, Func<TCell> lastPrev, Func<string, TCell, TCell> insert, string pattern, int n, int seed = 3)
+            where TCell : class {
+            var rnd = new Random(seed);
+            var cells = new List<TCell> { insert("a", first) };
+            cells.Add(insert("b", cells[0]));
+            TCell left = cells[0];
+            var sw = Stopwatch.StartNew();
+            for (int i = 0; i < n; i++) {
+                TCell a = pattern switch {
+                    "append" => lastPrev(),
+                    "prepend" => first,
+                    "both ends, alternating" => i % 2 == 1 ? lastPrev() : first,
+                    "one gap, from one side" => left,
+                    "one gap, alternating sides" => left,
+                    _ => rnd.Next(4) switch { 0 => first, 1 => cells[cells.Count / 2], 2 => cells[^1], _ => cells[rnd.Next(cells.Count)] },
+                };
+                var c = insert($"v{i}", a);
+                cells.Add(c);
+                if (pattern == "one gap, alternating sides" && i % 2 == 1) left = c;   // the other side is the cell inserted last
+            }
+            return sw.Elapsed.TotalSeconds;
+        }
+
+        private static (double Ms, List<bool> Answers) RunEulerNum<T>(Step[] steps) where T : struct, System.Numerics.INumber<T> {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = new EulerTourNum<T>();
+            var nodes = new ENodeNum<T>[steps.Length + 1];
+            foreach (var s in steps) {
+                if (s.Child == 1) {
+                    nodes[1] = t.Insert("n0", "n1");
+                    nodes[0] = t.GetNode("n0");
+                } else {
+                    nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                }
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static (EulerTourNum<T> Tree, double Seconds) BuildEulerNum<T>(int shape, int n, int seed = 1) where T : struct, System.Numerics.INumber<T> {
+            var rnd = new Random(seed);
+            var t = new EulerTourNum<T>();
+            var names = new List<string> { "n0" };
+            var sw = Stopwatch.StartNew();
+            for (int i = 1; i < n; i++) {
+                t.Insert(Shapes[shape].Parent(i, names, rnd), $"n{i}");
+                names.Add($"n{i}");
+            }
+            return (t, sw.Elapsed.TotalSeconds);
+        }
+
+        private static readonly string[] Kinds = { "rational", "integer", "double", "decimal" };
+
+        /// <summary>Build a tree of the given shape as an Euler tour of each kind: nodes in order, seconds, renumberings.</summary>
+        private static (List<string> Nodes, double Seconds, long Renumberings) BuildKind(string kind, int shape, int n) {
+            switch (kind) {
+                case "rational": { var (t, sec) = BuildEuler(shape, n); return (t.List.ToList(), sec, t.List.RenumberCount); }
+                case "integer": { var (t, sec) = BuildEulerInt(shape, n); return (t.List.ToList(), sec, t.List.RenumberCount); }
+                case "double": { var (t, sec) = BuildEulerNum<double>(shape, n); return (t.List.ToList(), sec, t.List.RenumberCount); }
+                default: { var (t, sec) = BuildEulerNum<decimal>(shape, n); return (t.List.ToList(), sec, t.List.RenumberCount); }
+            }
+        }
+
+        private static (List<string> Cells, double Seconds, long Renumberings) GrowKind(string kind, string pattern, int n) {
+            switch (kind) {
+                case "rational": { var q = new DList("R"); double sec = GrowList(q.FirstCell, () => q.LastCell.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), sec, q.RenumberCount); }
+                case "integer": { var q = new IntList(); double sec = GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), sec, q.RenumberCount); }
+                case "double": { var q = new NumList<double>(); double sec = GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), sec, q.RenumberCount); }
+                default: { var q = new NumList<decimal>(); double sec = GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), sec, q.RenumberCount); }
+            }
+        }
+
+        private static void Positions() {
+            const int nBuild = 100_000, nDyn = 100_000;
+            int[] depths = { 10, 1_000, 10_000, 100_000 };
+            foreach (var kind in Kinds) BuildKind(kind, 0, 1_000);      // warm-up (JIT)
+            RunEulerInt(Workload(1_000, 10, 1));
+            RunEulerNum<double>(Workload(1_000, 10, 1));
+            RunEulerNum<decimal>(Workload(1_000, 10, 1));
+            Console.WriteLine("\nKinds of positions\n");
+            Console.WriteLine("The same Euler tour on one list with four kinds of position: rational (DList: mediants, a region is renumbered when a denominator would exceed 2^40 or a numerator 2^61); integer, as in classical order maintenance (midpoints in [0, 2^62], a region is relabeled when no integer is left between two neighbors); double (midpoints); and decimal (the left neighbor plus half the gap rounded at its most significant digit, as in the original List.cs). Next to SOURCE or SINK, double and decimal step one unit outward, as rationals do. All renumber with the same density rule, so only the kind of position differs.\n");
+            Console.WriteLine($"Building trees ({nBuild:N0} nodes): seconds, and renumberings\n");
+            Console.WriteLine("| shape | " + string.Join(" | ", Kinds.Select(k => k + " [s]")) + " | " + string.Join(" | ", Kinds.Select(k => "renumberings " + k)) + " |");
+            Console.WriteLine("| --- |" + string.Concat(Enumerable.Repeat(" ---: |", 2 * Kinds.Length)));
+            for (int s = 0; s < Shapes.Length; s++) {
+                var results = Kinds.Select(k => BuildKind(k, s, nBuild)).ToList();
+                if (results.Any(r => !r.Nodes.SequenceEqual(results[0].Nodes))) throw new InvalidOperationException("kinds of positions disagree");
+                Console.WriteLine($"| {Shapes[s].Name} | " + string.Join(" | ", results.Select(r => r.Seconds.ToString("F3"))) + " | " + string.Join(" | ", results.Select(r => r.Renumberings.ToString("N0"))) + " |");
+            }
+
+            Console.WriteLine($"\nGrowing one list ({nBuild:N0} cells): seconds, and renumberings\n");
+            Console.WriteLine("| pattern | " + string.Join(" | ", Kinds.Select(k => k + " [s]")) + " | " + string.Join(" | ", Kinds.Select(k => "renumberings " + k)) + " |");
+            Console.WriteLine("| --- |" + string.Concat(Enumerable.Repeat(" ---: |", 2 * Kinds.Length)));
+            foreach (var pattern in ListPatterns) {
+                var results = Kinds.Select(k => GrowKind(k, pattern, nBuild)).ToList();
+                if (results.Any(r => !r.Cells.SequenceEqual(results[0].Cells))) throw new InvalidOperationException($"{pattern}: lists disagree");
+                Console.WriteLine($"| {pattern} | " + string.Join(" | ", results.Select(r => r.Seconds.ToString("F3"))) + " | " + string.Join(" | ", results.Select(r => r.Renumberings.ToString("N0"))) + " |");
+            }
+
+            Console.WriteLine($"\nInsertions with one query each ({nDyn:N0} nodes, node handles; µs per step, best of three runs)\n");
+            Console.WriteLine("| depth | DTree | " + string.Join(" | ", Kinds.Select(k => "Euler tour, " + k)) + " |");
+            Console.WriteLine("| ---: |" + string.Concat(Enumerable.Repeat(" ---: |", 1 + Kinds.Length)));
+            foreach (var depth in depths) {
+                var steps = Workload(nDyn, depth, 1);
+                var runs = new Func<Step[], (double Ms, List<bool> Answers)>[] { RunDTree, RunEuler, RunEulerInt, RunEulerNum<double>, RunEulerNum<decimal> };
+                var line = $"| {depth:N0} |";
+                List<bool>? first = null;
+                foreach (var run in runs) {
+                    var (ms, ans) = Best(run, steps);
+                    if (first == null) first = ans;
+                    else if (!first.SequenceEqual(ans)) throw new InvalidOperationException("kinds of positions: answers disagree");
+                    line += $" {ms * 1000 / steps.Length:F3} |";
+                }
+                Console.WriteLine(line);
+            }
+
+            const int queries = 1_000_000;
+            Console.WriteLine($"\nQueries on a built tree (random tree of {nBuild:N0} nodes, {queries:N0} random pairs of handles; µs per query)\n");
+            var rnd = new Random(2);
+            var pairs = new (string, string)[queries];
+            for (int q = 0; q < queries; q++) pairs[q] = ($"n{rnd.Next(nBuild)}", $"n{rnd.Next(nBuild)}");
+            Console.WriteLine("| encoding | µs per query |");
+            Console.WriteLine("| --- | ---: |");
+            bool[]? reference = null;
+            void Time(string label, Func<int, bool> query) {
+                for (int q = 0; q < 1000; q++) query(q);                // warm-up (JIT)
+                var r = new bool[queries];
+                var sw = Stopwatch.StartNew();
+                for (int q = 0; q < queries; q++) r[q] = query(q);
+                double us = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                if (reference == null) reference = r;
+                else if (!reference.SequenceEqual(r)) throw new InvalidOperationException($"{label}: queries disagree");
+                Console.WriteLine($"| {label} | {us:F3} |");
+            }
+            {
+                var (t, _, _) = Build(0, nBuild);
+                var h = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                Time("DTree", q => t.CanReach(h[q].Item1, h[q].Item2));
+            }
+            {
+                var (t, _) = BuildEuler(0, nBuild);
+                var h = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                Time("Euler tour, rational", q => t.CanReach(h[q].Item1, h[q].Item2));
+            }
+            {
+                var (t, _) = BuildEulerInt(0, nBuild);
+                var h = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                Time("Euler tour, integer", q => t.CanReach(h[q].Item1, h[q].Item2));
+            }
+            {
+                var (t, _) = BuildEulerNum<double>(0, nBuild);
+                var h = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                Time("Euler tour, double", q => t.CanReach(h[q].Item1, h[q].Item2));
+            }
+            {
+                var (t, _) = BuildEulerNum<decimal>(0, nBuild);
+                var h = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                Time("Euler tour, decimal", q => t.CanReach(h[q].Item1, h[q].Item2));
+            }
+        }
+
+        // -- placement rules ------------------------------------------------------------------------
+
+        private static readonly (string Name, string Kind, int Msd)[] Rules = {
+            ("integer, midpoint", "integer", 0), ("integer, MSD 2", "integer", 2), ("integer, MSD 10", "integer", 10),
+            ("double, midpoint", "double", 0), ("double, MSD 2", "double", 2), ("double, MSD 10", "double", 10),
+            ("decimal, midpoint", "decimal", 0), ("decimal, MSD 10", "decimal", 10),
+        };
+
+        private static (List<string> Nodes, long Renumberings) BuildRule(string kind, int msd, int shape, int n) {
+            var rnd = new Random(1);
+            var names = new List<string> { "n0" };
+            Action<string, string> insert;
+            Func<(List<string>, long)> result;
+            if (kind == "integer") { var t = new EulerTourInt(msd); insert = (p, c) => t.Insert(p, c); result = () => (t.List.ToList(), t.List.RenumberCount); }
+            else if (kind == "double") { var t = new EulerTourNum<double>(msd); insert = (p, c) => t.Insert(p, c); result = () => (t.List.ToList(), t.List.RenumberCount); }
+            else { var t = new EulerTourNum<decimal>(msd); insert = (p, c) => t.Insert(p, c); result = () => (t.List.ToList(), t.List.RenumberCount); }
+            for (int i = 1; i < n; i++) {
+                insert(Shapes[shape].Parent(i, names, rnd), $"n{i}");
+                names.Add($"n{i}");
+            }
+            return result();
+        }
+
+        private static (List<string> Cells, long Renumberings) GrowRule(string kind, int msd, string pattern, int n) {
+            if (kind == "integer") { var q = new IntList(msd); GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), q.RenumberCount); }
+            if (kind == "double") { var q = new NumList<double>(msd); GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), q.RenumberCount); }
+            { var q = new NumList<decimal>(msd); GrowList(q.First, () => q.Last.Prev!, (x, a) => q.InsertNewAfter(x, a), pattern, n); return (q.ToList(), q.RenumberCount); }
+        }
+
+        private static (double Ms, List<bool> Answers) RunRule(string kind, int msd, Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            if (kind == "integer") {
+                var t = new EulerTourInt(msd);
+                var nodes = new ENodeInt[steps.Length + 1];
+                foreach (var s in steps) {
+                    if (s.Child == 1) { nodes[1] = t.Insert("n0", "n1"); nodes[0] = t.GetNode("n0"); }
+                    else nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                    foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+                }
+            } else if (kind == "double") {
+                var t = new EulerTourNum<double>(msd);
+                var nodes = new ENodeNum<double>[steps.Length + 1];
+                foreach (var s in steps) {
+                    if (s.Child == 1) { nodes[1] = t.Insert("n0", "n1"); nodes[0] = t.GetNode("n0"); }
+                    else nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                    foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+                }
+            } else {
+                var t = new EulerTourNum<decimal>(msd);
+                var nodes = new ENodeNum<decimal>[steps.Length + 1];
+                foreach (var s in steps) {
+                    if (s.Child == 1) { nodes[1] = t.Insert("n0", "n1"); nodes[0] = t.GetNode("n0"); }
+                    else nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                    foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+                }
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static void PlacementRules() {
+            const int nBuild = 100_000, nDyn = 100_000;
+            int[] depths = { 10, 1_000, 10_000, 100_000 };
+            foreach (var r in Rules) { BuildRule(r.Kind, r.Msd, 0, 1_000); RunRule(r.Kind, r.Msd, Workload(1_000, 10, 1)); }   // warm-up (JIT)
+            Console.WriteLine("\nPlacement rules\n");
+            Console.WriteLine("Where a new position goes between two neighbors: the midpoint, or the left neighbor plus half the gap rounded at its most significant digit in base 2 or 10 (MSD), the rule of the original List.cs. Same Euler tour and density rule as above; rational positions always take the mediant.\n");
+            string header = "| {0} | " + string.Join(" | ", Rules.Select(r => r.Name)) + " |";
+            string rule = "| --- |" + string.Concat(Enumerable.Repeat(" ---: |", Rules.Length));
+            Console.WriteLine($"Renumberings while building trees ({nBuild:N0} nodes)\n");
+            Console.WriteLine(string.Format(header, "shape"));
+            Console.WriteLine(rule);
+            for (int s = 0; s < Shapes.Length; s++) {
+                var results = Rules.Select(r => BuildRule(r.Kind, r.Msd, s, nBuild)).ToList();
+                if (results.Any(x => !x.Nodes.SequenceEqual(results[0].Nodes))) throw new InvalidOperationException("placement rules disagree");
+                Console.WriteLine($"| {Shapes[s].Name} | " + string.Join(" | ", results.Select(x => x.Renumberings.ToString("N0"))) + " |");
+            }
+            Console.WriteLine($"\nRenumberings while growing one list ({nBuild:N0} cells)\n");
+            Console.WriteLine(string.Format(header, "pattern"));
+            Console.WriteLine(rule);
+            foreach (var pattern in ListPatterns) {
+                var results = Rules.Select(r => GrowRule(r.Kind, r.Msd, pattern, nBuild)).ToList();
+                if (results.Any(x => !x.Cells.SequenceEqual(results[0].Cells))) throw new InvalidOperationException($"{pattern}: placement rules disagree");
+                Console.WriteLine($"| {pattern} | " + string.Join(" | ", results.Select(x => x.Renumberings.ToString("N0"))) + " |");
+            }
+            Console.WriteLine($"\nInsertions with one query each ({nDyn:N0} nodes, node handles; µs per step, best of three runs)\n");
+            Console.WriteLine(string.Format(header, "depth"));
+            Console.WriteLine("| ---: |" + string.Concat(Enumerable.Repeat(" ---: |", Rules.Length)));
+            foreach (var depth in depths) {
+                var steps = Workload(nDyn, depth, 1);
+                var line = $"| {depth:N0} |";
+                List<bool>? first = null;
+                foreach (var r in Rules) {
+                    var (ms, ans) = Best(st => RunRule(r.Kind, r.Msd, st), steps);
+                    if (first == null) first = ans;
+                    else if (!first.SequenceEqual(ans)) throw new InvalidOperationException("placement rules: answers disagree");
+                    line += $" {ms * 1000 / steps.Length:F3} |";
+                }
+                Console.WriteLine(line);
+            }
+        }
+
+        // -- DTree and EulerTree -------------------------------------------------------------------
+
+        private static readonly (string Name, Func<string, DTree> Make)[] Trees = {
+            ("DTree, rational", id => new DTree(id)),
+            ("DTree, integer", id => new DTree(id, positions: Triordinal.Positions.Integer)),
+            ("EulerTree, rational", id => new EulerTree(id)),
+            ("EulerTree, integer", id => new EulerTree(id, positions: Triordinal.Positions.Integer)),
+        };
+
+        private static (double Ms, List<bool> Answers) RunTree(Func<string, DTree> make, Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = make("D");
+            var nodes = new DNode[steps.Length + 1];
+            foreach (var s in steps) {
+                if (s.Child == 1) {
+                    nodes[1] = t.Insert("n0", "n1");
+                    nodes[0] = t.GetNode("n0");
+                } else {
+                    nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                }
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static void EulerTrees() {
+            const int nBuild = 100_000, nDyn = 100_000, setN = 100_000, setDepth = 1_000, k = 1_000, queries = 100_000;
+            int[] depths = { 10, 1_000, 10_000, 100_000 };
+            foreach (var (_, make) in Trees) RunTree(make, Workload(1_000, 10, 1));     // warm-up (JIT)
+            Console.WriteLine("\nDTree and EulerTree\n");
+            Console.WriteLine("DTree keeps two lists, Q1 and Q2; EulerTree (Triordinal.DTree.Euler) keeps Q1 alone, with its closing cells, and decides reachability by whether a node lies inside another's block. Both with rational positions (the default) and with integer positions (Positions.Integer).\n");
+            Console.WriteLine($"Building trees ({nBuild:N0} nodes): seconds, and renumberings (summed over the lists)\n");
+            Console.WriteLine("| shape | " + string.Join(" | ", Trees.Select(x => x.Name + " [s]")) + " | " + string.Join(" | ", Trees.Select(x => "renumberings, " + x.Name)) + " |");
+            Console.WriteLine("| --- |" + string.Concat(Enumerable.Repeat(" ---: |", 2 * Trees.Length)));
+            for (int s = 0; s < Shapes.Length; s++) {
+                var times = new List<string>();
+                var counts = new List<string>();
+                List<string>? reference = null;
+                foreach (var (_, make) in Trees) {
+                    var rnd = new Random(1);
+                    var t = make("B");
+                    var names = new List<string> { "n0" };
+                    var sw = Stopwatch.StartNew();
+                    for (int i = 1; i < nBuild; i++) {
+                        t.Insert(Shapes[s].Parent(i, names, rnd), $"n{i}");
+                        names.Add($"n{i}");
+                    }
+                    times.Add(sw.Elapsed.TotalSeconds.ToString("F3"));
+                    counts.Add((t.Q1.RenumberCount + (t.List2?.RenumberCount ?? 0)).ToString("N0"));
+                    var q1 = t.Q1.ToList();
+                    if (reference != null && !reference.SequenceEqual(q1)) throw new InvalidOperationException("DTree and EulerTree disagree");
+                    reference = q1;
+                }
+                Console.WriteLine($"| {Shapes[s].Name} | " + string.Join(" | ", times) + " | " + string.Join(" | ", counts) + " |");
+            }
+
+            Console.WriteLine($"\nInsertions with one query each ({nDyn:N0} nodes, node handles; µs per step, best of three runs)\n");
+            Console.WriteLine("| depth | " + string.Join(" | ", Trees.Select(x => x.Name)) + " |");
+            Console.WriteLine("| ---: |" + string.Concat(Enumerable.Repeat(" ---: |", Trees.Length)));
+            foreach (var depth in depths) {
+                var steps = Workload(nDyn, depth, 1);
+                var line = $"| {depth:N0} |";
+                List<bool>? first = null;
+                foreach (var (_, make) in Trees) {
+                    var (ms, ans) = Best(st => RunTree(make, st), steps);
+                    if (first == null) first = ans;
+                    else if (!first.SequenceEqual(ans)) throw new InvalidOperationException("DTree and EulerTree: answers disagree");
+                    line += $" {ms * 1000 / steps.Length:F3} |";
+                }
+                Console.WriteLine(line);
+            }
+
+            Console.WriteLine($"\nQueries ({setN:N0} nodes, depth {setDepth:N0}; single pairs: 1,000,000 random pairs of handles; and/or: a set of {k:N0} nodes, {queries:N0} query nodes; µs per query)\n");
+            var rnd2 = new Random(4);
+            var parents = new int[setN];
+            for (int i = 1; i < setN; i++) parents[i] = i < setDepth ? i - 1 : rnd2.Next(setDepth);
+            var set = Enumerable.Range(0, setN).OrderBy(_ => rnd2.Next()).Take(k).Select(x => $"n{x}").ToList();
+            var us = Enumerable.Range(0, queries).Select(_ => $"n{rnd2.Next(setN)}").ToArray();
+            var pairs = Enumerable.Range(0, 1_000_000).Select(_ => ($"n{rnd2.Next(setN)}", $"n{rnd2.Next(setN)}")).ToArray();
+            string[] questions = { "single pairs", "reaches all", "reaches some", "reached by all", "reached by some" };
+            var times2 = new Dictionary<(string, string), double>();
+            Dictionary<string, bool[]>? reference2 = null;
+            foreach (var (name, make) in Trees) {
+                var t = make("S");
+                for (int i = 1; i < setN; i++) t.Insert($"n{parents[i]}", $"n{i}");
+                var answers = new Dictionary<string, bool[]>();
+                var hp = pairs.Select(p => (t.GetNode(p.Item1), t.GetNode(p.Item2))).ToArray();
+                for (int q = 0; q < 1000; q++) t.CanReach(hp[q].Item1, hp[q].Item2);   // warm-up (JIT)
+                var a = new bool[hp.Length];
+                var sw = Stopwatch.StartNew();
+                for (int q = 0; q < hp.Length; q++) a[q] = t.CanReach(hp[q].Item1, hp[q].Item2);
+                times2[(name, "single pairs")] = sw.Elapsed.TotalMilliseconds * 1000 / hp.Length;
+                answers["single pairs"] = a;
+                var uh = us.Select(t.GetNode).ToArray();
+                var vmin = t.VMin(set); var vmax = t.VMax(set); var umin = t.UMin(set); var umax = t.UMax(set);
+                foreach (var (question, f) in new (string, Func<DNode, bool>)[] {
+                             ("reaches all", vmin.ReachesAll), ("reaches some", vmax.ReachesSome),
+                             ("reached by all", umax.ReachedByAll), ("reached by some", umin.ReachedBySome) }) {
+                    for (int q = 0; q < 100; q++) f(uh[q]);              // warm-up (JIT)
+                    var b = new bool[uh.Length];
+                    sw.Restart();
+                    for (int q = 0; q < uh.Length; q++) b[q] = f(uh[q]);
+                    times2[(name, question)] = sw.Elapsed.TotalMilliseconds * 1000 / uh.Length;
+                    answers[question] = b;
+                }
+                if (reference2 == null) reference2 = answers;
+                else foreach (var question in questions)
+                        if (!reference2[question].SequenceEqual(answers[question])) throw new InvalidOperationException($"{question}: DTree and EulerTree disagree");
+            }
+            Console.WriteLine("| question | " + string.Join(" | ", Trees.Select(x => x.Name)) + " |");
+            Console.WriteLine("| --- |" + string.Concat(Enumerable.Repeat(" ---: |", Trees.Length)));
+            foreach (var question in questions)
+                Console.WriteLine($"| {question} | " + string.Join(" | ", Trees.Select(x => times2[(x.Name, question)].ToString("F3"))) + " |");
+
+            Console.WriteLine("\nMemory, measured with GC.GetTotalMemory\n");
+            Console.WriteLine("| structure | nodes | bytes per node |");
+            Console.WriteLine("| --- | ---: | ---: |");
+            foreach (var (name, make) in Trees) {
+                long before = GC.GetTotalMemory(true);
+                var rnd = new Random(1);
+                var t = make("M");
+                for (int i = 1; i < nBuild; i++) t.Insert($"n{rnd.Next(i)}", $"n{i}");
+                long after = GC.GetTotalMemory(true);
+                Console.WriteLine($"| {name}, random tree | {nBuild:N0} | {(after - before) / (double)nBuild:N0} |");
+                GC.KeepAlive(t);
             }
         }
 

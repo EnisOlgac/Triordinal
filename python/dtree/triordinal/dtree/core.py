@@ -102,7 +102,24 @@ def _lt(x: _Cell, y: _Cell) -> bool:
 
 
 def _reaches(u: DNode, v: DNode) -> bool:
+    """u reaches v in two lists: u precedes v in Q1 and in Q2."""
     return _lt(u.c1, v.c1) and _lt(u.c2, v.c2)
+
+
+def _reaches1(u: DNode, v: DNode) -> bool:
+    """u reaches v in one list (EulerTree): v lies strictly inside u's block in Q1."""
+    return _lt(u.c1, v.c1) and _lt(v.c1, u.e1 or u.c1)
+
+
+def _lt2(x: DNode, y: DNode) -> bool:
+    """x precedes y in the second coordinate: Q2."""
+    return _lt(x.c2, y.c2)
+
+
+def _lt2_euler(x: DNode, y: DNode) -> bool:
+    """x precedes y in the second coordinate of one list: y's block ends before x's block in Q1
+    (the block end takes the place of the Q2 position, in reverse order)."""
+    return _lt(y.e1 or y.c1, x.e1 or x.c1)
 
 
 class Projection:
@@ -201,17 +218,29 @@ class DTree:
     ``contains`` and ``same_subtree`` are membership tests and never raise.
     """
 
-    def __init__(self, tree_id: str = "P1", strict: bool = False) -> None:
+    _single = False  # EulerTree: Q1 only
+    _reach = staticmethod(_reaches)
+    _lt2 = staticmethod(_lt2)
+
+    def __init__(self, tree_id: str = "P1", strict: bool = False, positions: str = "rational") -> None:
         self.tree_id = tree_id
         self._strict = bool(strict)
         self._nodes: Dict[str, DNode] = {}
         self._root: Optional[DNode] = None
-        self._q1 = DList(f"{tree_id}.Q1")
-        self._q2 = DList(f"{tree_id}.Q2")
+        self._q1 = DList(f"{tree_id}.Q1", positions)
         self._v1 = Projection(self._q1)
-        self._v2 = Projection(self._q2)
+        if self._single:
+            self._q2 = self._v2 = None
+        else:
+            self._q2 = DList(f"{tree_id}.Q2", positions)
+            self._v2 = Projection(self._q2)
         self.edge_log: List[str] = []
         self._reshapes = 0  # counts deletions and moves; insertions keep the order of existing nodes
+
+    @property
+    def positions(self) -> str:
+        """The kind of position in the lists: "rational" (the default) or "integer"."""
+        return self._q1.positions
 
     @property
     def strict(self) -> bool:
@@ -220,7 +249,8 @@ class DTree:
 
     # -- construction ------------------------------------------------------
     @classmethod
-    def from_file(cls, path: str, tree_id: Optional[str] = None, strict: bool = False) -> "DTree":
+    def from_file(cls, path: str, tree_id: Optional[str] = None, strict: bool = False,
+                  positions: str = "rational") -> "DTree":
         """Read the format used by the .csx examples.
 
         ``parent: child1; child2`` adds children as last children of ``parent``;
@@ -231,7 +261,7 @@ class DTree:
         """
         import os
 
-        tree = cls(tree_id or os.path.splitext(os.path.basename(path))[0], strict)
+        tree = cls(tree_id or os.path.splitext(os.path.basename(path))[0], strict, positions)
         with open(path, encoding="utf-8-sig") as fh:
             for line in fh:
                 line = line.strip()
@@ -303,7 +333,7 @@ class DTree:
         s = self._sibling(sibling, child)
         p = s.up
         i = p.kids.index(s)
-        n = self._attach(child, p, i + 1, s.e1 or s.c1, s.c2.prev)
+        n = self._attach(child, p, i + 1, s.e1 or s.c1, None if self._single else s.c2.prev)
         self.edge_log.append(f"({s.name} > {child})")
         return n
 
@@ -330,8 +360,10 @@ class DTree:
     def _make_root(self, name: str) -> DNode:
         n = DNode(name, self)
         n.c1 = self._q1._insert_cell_after(name, self._q1.first)
-        n.c2 = self._q2._insert_cell_after(name, self._q2.first)
-        n.c1.node = n.c2.node = n
+        n.c1.node = n
+        if not self._single:
+            n.c2 = self._q2._insert_cell_after(name, self._q2.first)
+            n.c2.node = n
         self._root = n
         self._nodes[name] = n
         return n
@@ -341,8 +373,10 @@ class DTree:
         after the given cells. All checks are done; the name is registered last."""
         n = DNode(name, self)
         n.c1 = self._q1._insert_cell_after(name, q1_after)
-        n.c2 = self._q2._insert_cell_after(name, q2_after)
-        n.c1.node = n.c2.node = n
+        n.c1.node = n
+        if not self._single:
+            n.c2 = self._q2._insert_cell_after(name, q2_after)
+            n.c2.node = n
         n.up = p
         if p.kids is None:
             p.kids = [n]
@@ -358,20 +392,22 @@ class DTree:
         """Give p its closing cells if it has none: directly after p, as its block is p alone."""
         if p.e1 is None:
             p.e1 = self._q1._insert_cell_after(None, p.c1)
-            p.e2 = self._q2._insert_cell_after(None, p.c2)
-            p.e1.node = p.e2.node = p
+            p.e1.node = p
+            if not self._single:
+                p.e2 = self._q2._insert_cell_after(None, p.c2)
+                p.e2.node = p
 
     def _close(self, p: DNode) -> None:
         """Remove p's closing cells once p has no children left."""
         if p.e1 is not None:
             self._q1._remove_cell(p.e1)
-            self._q2._remove_cell(p.e2)
+            if not self._single:
+                self._q2._remove_cell(p.e2)
             p.e1 = p.e2 = None
 
-    @staticmethod
-    def _in(p: DNode, x: DNode) -> bool:
+    def _in(self, p: DNode, x: DNode) -> bool:
         """x is p or lies in p's subtree."""
-        return x is p or _reaches(p, x)
+        return x is p or self._reach(p, x)
 
     def next_in_q1(self, node) -> Optional[str]:
         """The node after ``node`` in Q1, as a name, or None after the last node. Q1 is the
@@ -416,7 +452,8 @@ class DTree:
         for k in kids:
             k.up = p
         self._q1._remove_cell(n.c1)
-        self._q2._remove_cell(n.c2)
+        if not self._single:
+            self._q2._remove_cell(n.c2)
         self._close(n)
         if not p.kids:
             p.kids = None
@@ -434,7 +471,8 @@ class DTree:
         if n is self._root:
             raise ValueError("the root cannot be deleted")
         cells = self._q1._cut_cells(n.c1, self._end1(n), forget=True)
-        self._q2._cut_cells(n.c2, self._end2(n), forget=True)
+        if not self._single:
+            self._q2._cut_cells(n.c2, self._end2(n), forget=True)
         removed = [c.node for c in cells if c.name is not None]
         p = n.up
         p.kids.remove(n)
@@ -460,7 +498,7 @@ class DTree:
         if self._in(u, p):
             raise ValueError("new_parent lies inside the subtree being moved")
         block1 = self._q1._cut_cells(u.c1, self._end1(u), forget=False)
-        block2 = self._q2._cut_cells(u.c2, self._end2(u), forget=False)
+        block2 = None if self._single else self._q2._cut_cells(u.c2, self._end2(u), forget=False)
         old = u.up
         old.kids.remove(u)
         if not old.kids:
@@ -469,7 +507,8 @@ class DTree:
         # Same placement rule as insert: Q2 directly after the parent,
         # Q1 directly before the parent's closing cell.
         self._open(p)
-        self._q2._paste_cells_after(block2, p.c2)
+        if not self._single:
+            self._q2._paste_cells_after(block2, p.c2)
         self._q1._paste_cells_after(block1, p.e1.prev)
         u.up = p
         if p.kids is None:
@@ -546,6 +585,8 @@ class DTree:
     @property
     def Q2(self) -> Projection:
         """Read-only view of the Q2 projection, as Q1."""
+        if self._single:
+            raise AttributeError("an EulerTree keeps Q1 only; it has no Q2")
         return self._v2
 
     @property
@@ -555,6 +596,8 @@ class DTree:
 
     @property
     def q2(self) -> List[str]:
+        if self._single:
+            raise AttributeError("an EulerTree keeps Q1 only; it has no Q2")
         return self._q2.to_list()
 
     @property
@@ -577,7 +620,8 @@ class DTree:
         return self.contains(node)
 
     def __repr__(self) -> str:
-        return f"DTree({self.tree_id!r}, size={self.size})\n  {self._q1!r}\n  {self._q2!r}"
+        lists = f"\n  {self._q1!r}" + ("" if self._single else f"\n  {self._q2!r}")
+        return f"{type(self).__name__}({self.tree_id!r}, size={self.size}){lists}"
 
     # -- queries ----------------------------------------------------------
     def contains(self, node) -> bool:
@@ -620,7 +664,10 @@ class DTree:
         a, b = u.c1, v.c1
         if not a.num * b.den < b.num * a.den:
             return False
-        a, b = u.c2, v.c2
+        if self._single:                                   # one list: v's cell before u's block ends
+            a, b = b, u.e1 or a
+        else:
+            a, b = u.c2, v.c2
         return a.num * b.den < b.num * a.den
 
     def can_not_reach(self, u, v) -> bool:
@@ -676,7 +723,7 @@ class DTree:
         Raises if u != v and u cannot reach v.
         """
         a, b = self._node(u), self._node(v)
-        if a is not b and not _reaches(a, b):
+        if a is not b and not self._reach(a, b):
             raise ValueError(f"{a.name!r} cannot reach {b.name!r}")
         out, w = [b.name], b
         while w is not a:
@@ -745,7 +792,8 @@ class _VNode:
         return c is None or (_lt(v.c1, c.c1) if self._lowest else _lt(c.c1, v.c1))
 
     def _better2(self, v: DNode, c: Optional[DNode]) -> bool:
-        return c is None or (_lt(v.c2, c.c2) if self._lowest else _lt(c.c2, v.c2))
+        lt2 = self._t._lt2
+        return c is None or (lt2(v, c) if self._lowest else lt2(c, v))
 
     def _rescan(self) -> None:
         self._c1 = self._c2 = None
@@ -851,11 +899,11 @@ class _VNode:
 
     def _below(self, u: DNode) -> bool:
         """u lies strictly left of the constructed node in both Q1 and Q2."""
-        return _lt(u.c1, self._c1.c1) and _lt(u.c2, self._c2.c2)
+        return _lt(u.c1, self._c1.c1) and self._t._lt2(u, self._c2)
 
     def _above(self, v: DNode) -> bool:
         """v lies strictly right of the constructed node in both Q1 and Q2."""
-        return _lt(self._c1.c1, v.c1) and _lt(self._c2.c2, v.c2)
+        return _lt(self._c1.c1, v.c1) and self._t._lt2(self._c2, v)
 
 
 class VMin(_VNode):
@@ -901,7 +949,7 @@ class VMax(_VNode):
                 hi = mid
             else:
                 lo = mid + 1
-        return lo < len(m) and _reaches(n, m[lo])
+        return lo < len(m) and self._t._reach(n, m[lo])
 
 
 class UMax(_VNode):
@@ -949,7 +997,7 @@ class UMin(_VNode):
 
     def _cover(self, v: DNode) -> Optional[DNode]:
         i = self._last_top_before(v)
-        if i > 0 and _reaches(self._tops[i - 1], v):
+        if i > 0 and self._t._reach(self._tops[i - 1], v):
             return self._tops[i - 1]
         return None
 
@@ -958,7 +1006,7 @@ class UMin(_VNode):
             return                       # an ancestor of node is already in the set
         i = self._last_top_before(node)
         m = self._tops
-        while i < len(m) and _reaches(node, m[i]):
+        while i < len(m) and self._t._reach(node, m[i]):
             del m[i]                     # node is above them: they are no longer topmost
         m.insert(i, node)
 
@@ -969,7 +1017,7 @@ class UMin(_VNode):
     def _rebuilt(self) -> None:
         self._tops = []
         for v in self._members:          # Q1 order: ancestors come first
-            if not (self._tops and _reaches(self._tops[-1], v)):
+            if not (self._tops and self._t._reach(self._tops[-1], v)):
                 self._tops.append(v)
 
     def may_be_reached_by_some(self, v) -> bool:

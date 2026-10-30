@@ -7,6 +7,12 @@ Enis Olgac's idea. Only when a denominator would exceed 64 bits is the smallest
 surrounding region with enough room renumbered with simple fractions k/2**32; larger
 regions must be sparser before they are accepted (as in Bender et al., ESA 2002).
 
+Integer positions are offered as well, ``DList(name, positions="integer")``: a new element
+gets the midpoint of its neighbors' labels in [0, 2**62], as in classical order maintenance,
+and when no integer is left between them the smallest surrounding region with enough room is
+relabeled evenly, with the same density rule. In the Triordinal benchmarks, integer positions
+are faster to compare and rational positions are renumbered far less often.
+
 A list may also hold unnamed cells: they have a position like any other cell but no
 name, so iteration, ``next``/``prev`` and all lookups by name pass over them. DTree uses
 them as the closing cell of each node with children, which marks the end of its subtree.
@@ -24,6 +30,9 @@ _Q = 1 << 32  # denominator used when a crowded region is renumbered
 _LIMIT = 64  # renumber when a denominator would exceed this many bits
 _SLACK = 16  # after renumbering, neighbors are at least this many 1/_Q apart
 _GROWTH = 2  # each doubling of the region raises the required spacing by this factor
+_U = 1 << 62  # integer positions: SOURCE has label 0, SINK label _U
+
+POSITIONS = ("rational", "integer")
 
 
 class _Cell:
@@ -48,15 +57,22 @@ class DList:
     region renumbered with simple fractions k/_Q.
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, positions: str = "rational") -> None:
+        if positions not in POSITIONS:
+            raise ValueError(f"positions must be one of {POSITIONS}, not {positions!r}")
         self.name = name
+        self.positions = positions
+        self._integer = positions == "integer"
         self._cells: Dict[str, _Cell] = {}
         self.first = self._new(SOURCE)
         self.last = self._new(SINK)
         self.first.next = self.last
         self.last.prev = self.first
-        self.first.num, self.first.den = -1, 0  # -infinity
-        self.last.num, self.last.den = 1, 0  # +infinity
+        if self._integer:
+            self.first.num, self.last.num = 0, _U  # integer labels (den 1) in [0, 2**62]
+        else:
+            self.first.num, self.first.den = -1, 0  # -infinity
+            self.last.num, self.last.den = 1, 0  # +infinity
         # Statistics: how often positions were renumbered and how many moved.
         self.renumber_count = 0
         self.renumber_moved = 0
@@ -81,6 +97,13 @@ class DList:
         cell.prev, cell.next = prev, nxt
         prev.next = cell
         nxt.prev = cell
+        if self._integer:
+            g = nxt.num - prev.num
+            if g >= 2:
+                cell.num, cell.den = prev.num + (g >> 1), 1  # the midpoint
+            else:
+                self._rebalance_integer(cell)
+            return
         if prev is self.first and nxt is self.last:
             cell.num, cell.den = 0, 1  # first node of an empty list
             return
@@ -131,6 +154,33 @@ class DList:
         c = lo
         for kv in ks:
             c.num, c.den = kv, q
+            c = c.next
+        self.renumber_count += 1
+        self.renumber_moved += m
+
+    def _rebalance_integer(self, cell: _Cell) -> None:
+        """Relabel the smallest region around ``cell`` that has room, evenly (integer positions)."""
+        lo = hi = cell
+        m, k, need = 1, 1, _SLACK
+        while True:
+            for _ in range(k):
+                if lo.prev is not self.first:
+                    lo = lo.prev
+                    m += 1
+                if hi.next is not self.last:
+                    hi = hi.next
+                    m += 1
+            left, right = lo.prev, hi.next
+            room = right.num - left.num - 1  # integers strictly between the two
+            if room >= m * need or (left is self.first and right is self.last):
+                break
+            k *= 2
+            need *= _GROWTH
+        if room < m:
+            raise OverflowError(f"{self.name}: no integer positions left")
+        c, base = lo, left.num
+        for j in range(m):
+            c.num, c.den = base + ((j + 1) * (room + 1)) // (m + 1), 1
             c = c.next
         self.renumber_count += 1
         self.renumber_moved += m
@@ -204,9 +254,11 @@ class DList:
         cell = self._cells.get(name)
         if cell is None:
             return None
-        if cell.den == 0:
-            return float("inf") if cell.num > 0 else float("-inf")
-        return Fraction(cell.num, cell.den)
+        if cell is self.first:
+            return float("-inf")
+        if cell is self.last:
+            return float("inf")
+        return cell.num if self._integer else Fraction(cell.num, cell.den)
 
     label = index
 
@@ -325,5 +377,5 @@ class DList:
     def __repr__(self) -> str:
         return f"{self.name}: [{', '.join(self)}]"
 
-__all__ = ["DList", "SOURCE", "SINK"]
-__version__ = "2.1.0"
+__all__ = ["DList", "SOURCE", "SINK", "POSITIONS"]
+__version__ = "2.2.0"

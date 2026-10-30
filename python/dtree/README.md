@@ -35,7 +35,8 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 
 | C# (docs) | Python |
 |---|---|
-| `DTree(id, strict)` | `DTree(tree_id="P1", strict=False)` (strict: queries raise for unknown nodes) |
+| `DTree(id, strict, positions)` | `DTree(tree_id="P1", strict=False, positions="rational")` (strict: queries raise for unknown nodes; positions: `"rational"` or `"integer"`) |
+| `Triordinal.DTree.Euler.EulerTree` | `from triordinal.dtree.euler import EulerTree` (the tree on one list, same API) |
 | `Insert(parent, child)` | `insert(parent, child)` (last child) |
 | `InsertAfter`, `InsertBefore` | `insert_after(sibling, child)`, `insert_before(sibling, child)` |
 | `AddLine` | `add_line(line)` (`p: c`, `s > c`, `s < c`; also in `from_file`) |
@@ -61,6 +62,19 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 | `Add`, `Discard`, `Contains` (of a constructed node) | `add`, `discard`, `node in s` |
 | `UMin.Covering` | `covering` (topmost member that reaches a node; `None` if none) |
 
+## EulerTree: the tree on one list
+
+```python
+from triordinal.dtree.euler import EulerTree
+
+t = EulerTree("E1")                     # or EulerTree("E1", positions="integer")
+t.insert("A", "B")
+t.insert("B", "C")
+t.can_reach("A", "C")                   # True: C lies inside A's block of Q1
+```
+
+An EulerTree keeps DTree's Q1 alone, with its closing cells: the subtree of *u* is the block from *u* to its closing cell, and *u* reaches *v* exactly when *v* lies strictly inside it. This is the classical Euler-tour encoding; for trees it holds the same information as DTree's two lists and is faster to maintain. It has DTree's whole API except `Q2` and `q2`. See [the comparison with prior art](https://github.com/EnisOlgac/Triordinal/blob/main/docs/prior-art.md).
+
 ## Semantics
 
 - Every method accepts a node name or a node handle (`DNode`). `insert` returns the handle of the new node, `get_node(name)` gives the handle of an existing one. A handle refers directly to the node's positions in Q1 and Q2, so `can_reach` on handles is two position comparisons without any lookup by name. Handles of deleted nodes, or of another tree, are rejected (KeyError) or reported as unreachable.
@@ -75,6 +89,7 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
 - And/or queries on the topology: the constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). Members are added with `add` and removed with `discard`. A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. Its members are nodes, not names: a member that was deleted stays out of the set, even if a new node with the same name is inserted later. See [and/or queries on the topology](https://github.com/EnisOlgac/Triordinal/blob/main/docs/and-or-queries.md).
 - A node with children has a closing cell in each list, directly after the last cell of its subtree. A new child goes directly before its parent's closing cell in Q1 and directly after the parent in Q2, so every insertion, deletion and move finds its place in both lists without a search. Closing cells are not nodes and are not shown by `Q1` and `Q2`.
+- `positions="integer"` gives integer positions instead of fractions: midpoints in [0, 2⁶²], as in classical order maintenance. They are faster to compare and renumbered more often.
 - Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Insertion patterns that nest new cells ever deeper into one gap—alternating insertions, and deep chains, whose nodes nest into the gap between their parent and its closing cell—trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests
@@ -94,13 +109,15 @@ python -m triordinal.dtree.bench            # trees of 10,000 and 100,000 nodes
 python -m triordinal.dtree.bench --quick    # a few seconds
 python -m triordinal.dtree.bench --dynamic  # only the dynamic updates and the tree view
 python -m triordinal.dtree.bench --review   # only the patterns from the review of 1.8.0
+python -m triordinal.dtree.bench --prior-art  # only the comparison with prior art (Euler tour, pre/post numbers)
+python -m triordinal.dtree.bench --euler      # only DTree against EulerTree, rational and integer positions
 python -m triordinal.dtree.bench --note "idle machine"   # remark for the report
 python -m triordinal.dtree.bench 1000000    # custom sizes
 ```
 
 In a clone of the repository, `python python/benchmarks/bench.py` runs the same code from the sources.
 
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, dynamic updates (insertions with 1 or 10 queries each, and static pre/post numbers at depths 100 and 1,000), and a tree view with expand/collapse; finally the complexity patterns from Onur Safi's review of DTree 1.8.0 and the memory per node. Each dynamic measurement is the best of three runs. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, dynamic updates (insertions with 1 or 10 queries each, and static pre/post numbers at depths 100 and 1,000), and a tree view with expand/collapse; then the complexity patterns from Onur Safi's review of DTree 1.8.0 and the memory per node; finally a comparison with prior art: the parenthesis (Euler-tour) encoding on one list with the same rational positions, and pre/post numbers recomputed lazily (`triordinal/dtree/prior_art.py`). Each dynamic measurement is the best of three runs. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
 
 Every run also writes its tables as a Markdown report to `benchmarks/python/`—in the current directory, or at the repository root when run inside a clone— named after date and time (for example `2026-10-17_14-18.md`), with a header giving the DTree and Python versions, the operating system and the processor; `--no-save` skips it. The C# benchmarks (`dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench`) write theirs to `benchmarks/csharp/`.
 

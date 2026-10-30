@@ -11,6 +11,10 @@ from triordinal.dlist import SINK, SOURCE, DList  # noqa: E402
 
 
 class TestDList(unittest.TestCase):
+    POSITIONS = "rational"
+
+    def make(self, name):
+        return DList(name, self.POSITIONS)
     def check(self, q, ref):
         self.assertEqual(list(q), ref)
         for _ in range(200):
@@ -19,7 +23,7 @@ class TestDList(unittest.TestCase):
 
     def test_random_inserts_and_removes(self):
         rnd = random.Random(1)
-        q, ref = DList("Q"), []
+        q, ref = self.make("Q"), []
         for i in range(3000):
             name = f"n{i}"
             if ref and rnd.random() < 0.2:
@@ -38,7 +42,7 @@ class TestDList(unittest.TestCase):
         self.check(q, ref)
 
     def test_alternating_worst_case_renumbers_and_keeps_order(self):
-        q, ref = DList("Q"), ["a", "b"]
+        q, ref = self.make("Q"), ["a", "b"]
         q.insert_after("a", SOURCE)
         q.insert_after("b", "a")
         left, right = "a", "b"
@@ -51,7 +55,7 @@ class TestDList(unittest.TestCase):
         self.check(q, ref)
 
     def test_markers_cannot_be_inserted_moved_or_removed(self):
-        q = DList("Q")
+        q = self.make("Q")
         q.insert_after("a", SOURCE)
         for f in (lambda: q.insert_before(SINK, "a"), lambda: q.insert_after(SOURCE, "a"),
                   lambda: q.insert_after(SINK, "a"), lambda: q.insert_before(SOURCE, "a"),
@@ -63,7 +67,7 @@ class TestDList(unittest.TestCase):
     def test_many_end_insertions_then_one_gap(self):
         # the reviewer's pattern: values grow with every insertion at the end, then one gap
         # is filled alternately; Python's integers do not overflow, the order must hold
-        q = DList("Q")
+        q = self.make("Q")
         q.insert_after("r", SOURCE)
         prev = None
         for i in range(200_000):
@@ -83,8 +87,13 @@ class TestDList(unittest.TestCase):
 class TestUnnamedCells(unittest.TestCase):
     """Unnamed cells (DTree's closing cells) hold a position but are passed over by name."""
 
+    POSITIONS = "rational"
+
+    def make(self, name):
+        return DList(name, self.POSITIONS)
+
     def test_unnamed_cells_are_invisible_by_name(self):
-        q = DList("Q")
+        q = self.make("Q")
         for n in "abc":
             q.insert_before(n, SINK)
         a = q._cells["a"]
@@ -102,7 +111,7 @@ class TestUnnamedCells(unittest.TestCase):
         self.assertEqual(q.next("a"), "c")
 
     def test_cell_level_move_keeps_cells(self):
-        q = DList("Q")
+        q = self.make("Q")
         for n in "abcde":
             q.insert_before(n, SINK)
         b, d = q._cells["b"], q._cells["d"]
@@ -117,6 +126,31 @@ class TestUnnamedCells(unittest.TestCase):
             q._insert_cell_after(None, q.last)       # nothing follows SINK
         with self.assertRaises(ValueError):
             q.cut_block(SOURCE, "a")                 # markers cannot be cut
+
+
+class TestDListInteger(TestDList):
+    POSITIONS = "integer"
+
+
+class TestUnnamedCellsInteger(TestUnnamedCells):
+    POSITIONS = "integer"
+
+
+class TestIntegerPositions(unittest.TestCase):
+    def test_kind_and_labels(self):
+        q = DList("Q", "integer")
+        self.assertEqual(q.positions, "integer")
+        with self.assertRaises(ValueError):
+            DList("Q", "decimal")
+        for i in range(20000):
+            q.insert_before(f"v{i}", SINK)              # appends halve the gap to SINK: relabeling
+        self.assertGreater(q.renumber_count, 0)
+        self.assertEqual(q.index(SOURCE), float("-inf"))
+        self.assertEqual(q.index(SINK), float("inf"))
+        labels = [q.index(n) for n in q]
+        self.assertTrue(all(isinstance(x, int) and 0 < x < 1 << 62 for x in labels))
+        self.assertEqual(labels, sorted(labels))
+        self.assertEqual(len(set(labels)), len(labels))
 
 
 if __name__ == "__main__":

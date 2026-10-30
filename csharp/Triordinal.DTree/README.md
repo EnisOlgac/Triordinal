@@ -25,6 +25,16 @@ t.VMin(new[] { "C", "D" }).ReachesAll("A");      // true
 t.UMin(new[] { "B", "D" }).ReachedBySome("C");   // true
 ```
 
+`Triordinal.DTree.Euler.EulerTree` is the tree on one list: DTree's Q1 with its closing cells, the classical Euler-tour encoding, with DTree's API except Q2. For trees it is faster than DTree's two lists and needs less memory. Both take `Positions.Integer` for integer positions instead of the default rational ones.
+
+```csharp
+using Triordinal.DTree.Euler;
+
+var e = new EulerTree("E1");
+e.Insert("A", "B");
+e.CanReach("A", "B");   // true
+```
+
 `new DTree("P1", strict: true)` makes queries throw for names that are not in the tree instead of answering false. Every operation checks its arguments before it changes anything, so an operation that throws leaves the tree as it was.
 
 - Repository, Python implementation and documentation: https://github.com/EnisOlgac/Triordinal

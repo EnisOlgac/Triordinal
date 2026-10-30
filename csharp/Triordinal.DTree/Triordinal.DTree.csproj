@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>DirectedTrees</RootNamespace>
     <AssemblyName>Triordinal.DTree</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <Authors>Enis Olgac</Authors>
     <Description>DTree (part of Triordinal): incremental encoding of the topology of directed trees by two projections (Q1, Q2): O(1) reachability, and/or queries on the topology of the tree, dynamic (incremental) updates.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

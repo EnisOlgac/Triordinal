@@ -8,6 +8,8 @@ where ``python benchmarks/bench.py`` does the same):
     python -m triordinal.dtree.bench --quick         # small sizes, a few seconds
     python -m triordinal.dtree.bench --dynamic       # only the dynamic updates and the tree view
     python -m triordinal.dtree.bench --review        # only the patterns from the review of 1.8.0
+    python -m triordinal.dtree.bench --prior-art     # only the comparison with prior art
+    python -m triordinal.dtree.bench --euler         # only DTree against EulerTree, by kind of position
     python -m triordinal.dtree.bench --note "idle machine after restart"   # remark for the report
     python -m triordinal.dtree.bench --no-save       # do not write a report
 
@@ -24,6 +26,8 @@ and under dynamic updates, with insertions and queries alternating (including st
 pre/post numbers recomputed after each insertion), and in a use case: a tree view whose
 nodes are inserted, collapsed and expanded while rows are shown. The last section times the
 complexity patterns pointed out in Onur Safi's review of DTree 1.8.0, and the memory per node.
+A last section compares DTree with prior art: the parenthesis (Euler-tour) encoding on one list
+with the same rational positions, and pre/post numbers recomputed lazily (see prior_art.py).
 Timings depend on the machine; the renumbering counts do not.
 """
 
@@ -40,6 +44,8 @@ import tracemalloc
 
 import triordinal.dtree as _pkg
 from triordinal.dtree import SINK, SOURCE, DList, DTree
+from triordinal.dtree.euler import EulerTree
+from triordinal.dtree.prior_art import EulerTour, EulerTourInt, EulerTourNum, IntList, NumList, PrePostNumbers
 
 
 def _base_dir():
@@ -627,12 +633,483 @@ def bench_review(depths, rounds, sibling_counts, members, unrelated):
         del obj
 
 
+# -- comparison with prior art -------------------------------------------------------------
+
+def run_euler(steps):
+    """Euler tour on one list, with node handles (insert returns the new node's handle)."""
+    t, answers = EulerTour("E"), []
+    nodes = [None] * (len(steps) + 1)
+    for p, c, qs in steps:
+        if c == 1:
+            nodes[1] = t.insert("n0", "n1")
+            nodes[0] = t.get_node("n0")
+        else:
+            nodes[c] = t.insert(nodes[p], f"n{c}")
+        for u, v in qs:
+            answers.append(t.can_reach(nodes[u], nodes[v]))
+    return answers
+
+
+def run_prepost(steps):
+    """Pre/post numbers, recomputed lazily: only before a query that follows a change."""
+    t, answers = PrePostNumbers(), []
+    for p, c, qs in steps:
+        t.insert(p, c)
+        for u, v in qs:
+            answers.append(t.can_reach(u, v))
+    return answers
+
+
+def batched_workload(n, depth, batch, seed=7):
+    """Insertions as in dynamic_workload; after every `batch` insertions, `batch` queries
+    between random nodes present at that moment (one query per insertion on average)."""
+    rnd = random.Random(seed)
+    steps = []
+    for i in range(1, n):
+        parent = i - 1 if i < depth else rnd.randrange(min(depth, i))
+        qs = [(rnd.randrange(i + 1), rnd.randrange(i + 1)) for _ in range(batch)] if i % batch == 0 else []
+        steps.append((parent, i, qs))
+    return steps
+
+
+def _build_euler(shape, n, seed=1):
+    rnd = random.Random(seed)
+    t, names = EulerTour("B"), ["n0"]
+    pick = SHAPES[shape]
+    start = time.perf_counter()
+    for i in range(1, n):
+        if shape == "star (inner node)" and i <= 2:
+            parent = "n0"
+        else:
+            parent = pick(i, names, rnd)
+        t.insert(parent, f"n{i}")
+        names.append(f"n{i}")
+    return t, time.perf_counter() - start
+
+
+def bench_prior_art(n_build, n_dyn, depths, batches, set_n, set_depth, k, queries):
+    print("\n### Comparison with prior art\n")
+    print("Contenders: DTree (two lists, Q1 and Q2); the parenthesis (Euler-tour) encoding, every node "
+          "an open and a close cell in one list, with the same rational positions (DList); pre/post "
+          "numbers from a traversal, recomputed lazily, only before a query that follows a change; "
+          "and the parent walk as before. All answers are checked against each other.\n")
+
+    print(f"#### Building trees ({n_build:,} nodes)\n")
+    row("shape", "DTree [s]", "Euler tour [s]", "renumberings DTree Q1 / Q2", "renumberings Euler tour")
+    row("---", "---:", "---:", "---:", "---:")
+    for shape in SHAPES:
+        t, _, dt = build(shape, n_build)
+        e, de = _build_euler(shape, n_build)
+        row(shape, f"{dt:.2f}", f"{de:.2f}", f"{t.Q1.renumber_count:,} / {t.Q2.renumber_count:,}",
+            f"{e.list.renumber_count:,}")
+
+    print(f"\n#### Insertions with one query each ({n_dyn:,} nodes; µs per step, best of three runs)\n")
+    row("depth", "DTree", "Euler tour", "parent walk")
+    row("---:", "---:", "---:", "---:")
+    for depth in depths:
+        steps = dynamic_workload(n_dyn, depth, 1)
+        d, a = best(run_dtree, steps)
+        e, b = best(run_euler, steps)
+        w, c = best(run_parent_walk, steps)
+        assert a == b == c
+        m = len(steps)
+        row(f"{depth:,}", f"{d / m * 1e6:.2f}", f"{e / m * 1e6:.2f}", f"{w / m * 1e6:.2f}")
+
+    depth = depths[len(depths) // 2]
+    print(f"\n#### Insertions and queries in batches ({n_dyn:,} nodes, depth {depth:,}; µs per insertion "
+          "with its share of the queries)\n")
+    print("After every *b* insertions come *b* queries, so there is one query per insertion on "
+          "average; pre/post numbers are recomputed once per batch.\n")
+    row("batch b", "DTree", "Euler tour", "pre/post, lazy", "parent walk")
+    row("---:", "---:", "---:", "---:", "---:")
+    for b_ in batches:
+        steps = batched_workload(n_dyn, depth, b_)
+        d, a = best(run_dtree, steps)
+        e, b = best(run_euler, steps)
+        r, c = best(run_prepost, steps)
+        w, x = best(run_parent_walk, steps)
+        assert a == b == c == x
+        m = len(steps)
+        row(f"{b_:,}", f"{d / m * 1e6:.2f}", f"{e / m * 1e6:.2f}", f"{r / m * 1e6:.2f}", f"{w / m * 1e6:.2f}")
+
+    print(f"\n#### And/or queries ({set_n:,} nodes, depth {set_depth:,}, set of {k:,} nodes, "
+          f"{queries:,} query nodes; µs per query)\n")
+    print("Each encoding answers with its own constructed points: DTree with VMin, VMax, UMin, UMax; "
+          "the Euler tour with the minimum and maximum open and close positions over the set; pre/post "
+          "numbers with the same over their numbers. The \"some\" questions use the members in order and "
+          "one test in all three.\n")
+    rnd = random.Random(4)
+    parents = {}
+    for i in range(1, set_n):
+        parents[i] = i - 1 if i < set_depth else rnd.randrange(set_depth)
+    t, e, pp = DTree("S"), EulerTour("S"), PrePostNumbers()
+    for c, p in parents.items():
+        t.insert(f"n{p}", f"n{c}")
+        e.insert(f"n{p}", f"n{c}")
+        pp.insert(p, c)
+    S = rnd.sample(range(set_n), k)
+    U = [rnd.randrange(set_n) for _ in range(queries)]
+    Sn = [f"n{s}" for s in S]
+    start = time.perf_counter()
+    vmin, vmax, umin, umax = t.vmin(Sn), t.vmax(Sn), t.umin(Sn), t.umax(Sn)
+    b_d = time.perf_counter() - start
+    start = time.perf_counter()
+    es = e.euler_set(Sn)
+    b_e = time.perf_counter() - start
+    start = time.perf_counter()
+    ns = pp.number_set(S)
+    b_p = time.perf_counter() - start
+    th = [t.get_node(f"n{u}") for u in U]
+    eh = [e.get_node(f"n{u}") for u in U]
+    row("question", "DTree", "Euler tour", "pre/post")
+    row("---", "---:", "---:", "---:")
+    for name, fd, fe, fp in (
+        ("reaches all", vmin.reaches_all, es.reaches_all, ns.reaches_all),
+        ("reaches some", vmax.reaches_some, es.reaches_some, ns.reaches_some),
+        ("reached by all", umax.reached_by_all, es.reached_by_all, ns.reached_by_all),
+        ("reached by some", umin.reached_by_some, es.reached_by_some, ns.reached_by_some),
+    ):
+        cells = [name]
+        results = []
+        for f, xs in ((fd, th), (fe, eh), (fp, U)):
+            start = time.perf_counter()
+            results.append([f(x) for x in xs])
+            cells.append(f"{(time.perf_counter() - start) / queries * 1e6:.2f}")
+        assert results[0] == results[1] == results[2], name
+        row(*cells)
+    print(f"\n(Building the constructed points of {k:,} nodes: DTree, all four, {b_d * 1e3:.1f} ms; "
+          f"Euler tour {b_e * 1e3:.1f} ms; pre/post {b_p * 1e3:.1f} ms.)")
+
+    print("\n#### Memory, measured with tracemalloc\n")
+    row("structure", "nodes", "bytes per node")
+    row("---", "---:", "---:")
+    m = n_build
+
+    def make_pp():
+        x = PrePostNumbers()
+        for i in range(1, m):
+            x.insert(random.Random(i).randrange(i), i)
+        x.refresh()
+        return x
+
+    for label, make in (("DTree, random tree", lambda: build("random", m)[0]),
+                        ("Euler tour, random tree", lambda: _build_euler("random", m)[0]),
+                        ("pre/post numbers, random tree", make_pp)):
+        gc.collect()
+        tracemalloc.start()
+        obj = make()
+        size = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        row(label, f"{m:,}", f"{size / m:,.0f}")
+        del obj
+
+def _build_tour(make, shape, n, seed=1):
+    """Build an Euler tour made by make(name) in the given shape."""
+    rnd = random.Random(seed)
+    t, names = make("B"), ["n0"]
+    pick = SHAPES[shape]
+    start = time.perf_counter()
+    for i in range(1, n):
+        parent = "n0" if shape == "star (inner node)" and i <= 2 else pick(i, names, rnd)
+        t.insert(parent, f"n{i}")
+        names.append(f"n{i}")
+    return t, time.perf_counter() - start
+
+
+def _grow_list(q, pattern, n, seed=3):
+    """Insert n cells into q with a pattern, at the cell level (DList and IntList alike)."""
+    rnd = random.Random(seed)
+    cells = [q._insert_cell_after("a", q.first)]
+    cells.append(q._insert_cell_after("b", cells[0]))
+    left, right = cells                                           # the gap filled by "same gap"
+    start = time.perf_counter()
+    for i in range(n):
+        if pattern == "append":
+            a = q.last.prev
+        elif pattern == "prepend":
+            a = q.first
+        elif pattern == "both ends, alternating":
+            a = q.last.prev if i % 2 else q.first
+        elif pattern == "one gap, from one side":
+            a = left                                              # always directly after the same cell
+        elif pattern == "one gap, alternating sides":
+            a = left                                              # the newer half of the gap, alternately
+        else:                                                     # hot spots
+            a = rnd.choice([q.first, cells[len(cells) // 2], cells[-1], rnd.choice(cells)])
+        c = q._insert_cell_after(f"v{i}", a)
+        cells.append(c)
+        if pattern == "one gap, alternating sides":
+            if i % 2:
+                left = c
+            else:
+                right = c
+    return time.perf_counter() - start
+
+
+def _tour_runner(make):
+    """A runner like run_euler for any Euler tour made by make()."""
+    def run(steps):
+        t, answers = make(), []
+        nodes = [None] * (len(steps) + 1)
+        for p, c, qs in steps:
+            if c == 1:
+                nodes[1] = t.insert("n0", "n1")
+                nodes[0] = t.get_node("n0")
+            else:
+                nodes[c] = t.insert(nodes[p], f"n{c}")
+            for u, v in qs:
+                answers.append(t.can_reach(nodes[u], nodes[v]))
+        return answers
+    return run
+
+
+_POSITION_KINDS = (
+    ("rational", lambda name: EulerTour(name), lambda: DList("L")),
+    ("integer", lambda name: EulerTourInt(name), lambda: IntList("L")),
+    ("float", lambda name: EulerTourNum(name, "float"), lambda: NumList("L", "float")),
+    ("decimal", lambda name: EulerTourNum(name, "decimal"), lambda: NumList("L", "decimal")),
+)
+
+
+def bench_positions(n_build, n_dyn, depths):
+    kinds = [k for k, _, _ in _POSITION_KINDS]
+    print("\n### Kinds of positions\n")
+    print("The same Euler tour on one list with four kinds of position: rational (DList: mediants, a "
+          "region is renumbered when a denominator would exceed 64 bits); integer, as in classical order "
+          "maintenance (midpoints in [0, 2^62], a region is relabeled when no integer is left between two "
+          "neighbors); and floating point, binary (float, as C#'s double) or decimal (28 significant "
+          "digits, as C#'s decimal): midpoints, one unit beyond the neighbor next to SOURCE or SINK as with "
+          "rationals, and a region is respaced when a midpoint is no longer representable. All renumber "
+          "with the same density rule, so only the kind of position differs.\n")
+    print(f"#### Building trees ({n_build:,} nodes): seconds, and renumberings\n")
+    row("shape", *[f"{k} [s]" for k in kinds], *[f"renumberings {k}" for k in kinds])
+    row("---", *["---:"] * (2 * len(kinds)))
+    for shape in SHAPES:
+        times, counts, ref = [], [], None
+        for _, make, _ in _POSITION_KINDS:
+            t, dt = _build_tour(make, shape, n_build)
+            nodes = t.nodes()
+            assert ref is None or nodes == ref
+            ref = nodes
+            times.append(f"{dt:.2f}")
+            counts.append(f"{t.list.renumber_count:,}")
+        row(shape, *times, *counts)
+
+    print(f"\n#### Growing one list ({n_build:,} cells): seconds, and renumberings\n")
+    row("pattern", *[f"{k} [s]" for k in kinds], *[f"renumberings {k}" for k in kinds])
+    row("---", *["---:"] * (2 * len(kinds)))
+    for pattern in ("append", "prepend", "both ends, alternating", "one gap, from one side",
+                    "one gap, alternating sides", "hot spots"):
+        times, counts, ref = [], [], None
+        for _, _, make in _POSITION_KINDS:
+            q = make()
+            dt = _grow_list(q, pattern, n_build)
+            assert ref is None or list(q) == ref
+            ref = list(q)
+            times.append(f"{dt:.2f}")
+            counts.append(f"{q.renumber_count:,}")
+        row(pattern, *times, *counts)
+
+    print(f"\n#### Insertions with one query each ({n_dyn:,} nodes; µs per step, best of three runs)\n")
+    row("depth", "DTree", *[f"Euler tour, {k}" for k in kinds])
+    row("---:", *["---:"] * (1 + len(kinds)))
+    for depth in depths:
+        steps = dynamic_workload(n_dyn, depth, 1)
+        d, a = best(run_dtree, steps)
+        cells = [f"{depth:,}", f"{d / len(steps) * 1e6:.2f}"]
+        for _, make, _ in _POSITION_KINDS:
+            e, b = best(_tour_runner(lambda: make("E")), steps)
+            assert a == b
+            cells.append(f"{e / len(steps) * 1e6:.2f}")
+        row(*cells)
+
+    print(f"\n#### Queries on a built tree (random tree of {n_build:,} nodes, 1,000,000 random pairs of "
+          "handles; µs per query)\n")
+    rnd = random.Random(2)
+    pairs = [(f"n{rnd.randrange(n_build)}", f"n{rnd.randrange(n_build)}") for _ in range(1_000_000)]
+    row("encoding", "µs per query")
+    row("---", "---:")
+    results = []
+    trees = [("DTree", build("random", n_build)[0])]
+    trees += [(f"Euler tour, {k}", _build_tour(make, "random", n_build)[0]) for k, make, _ in _POSITION_KINDS]
+    for label, tree in trees:
+        hs = [(tree.get_node(u), tree.get_node(v)) for u, v in pairs]
+        f = tree.can_reach
+        start = time.perf_counter()
+        results.append([f(u, v) for u, v in hs])
+        row(label, f"{(time.perf_counter() - start) / len(hs) * 1e6:.3f}")
+        del hs
+    assert all(r == results[0] for r in results)
+
+_RULES = (
+    ("integer, midpoint", lambda name: EulerTourInt(name, 0), lambda: IntList("L", 0)),
+    ("integer, MSD 2", lambda name: EulerTourInt(name, 2), lambda: IntList("L", 2)),
+    ("integer, MSD 10", lambda name: EulerTourInt(name, 10), lambda: IntList("L", 10)),
+    ("float, midpoint", lambda name: EulerTourNum(name, "float", 0), lambda: NumList("L", "float", 0)),
+    ("float, MSD 2", lambda name: EulerTourNum(name, "float", 2), lambda: NumList("L", "float", 2)),
+    ("float, MSD 10", lambda name: EulerTourNum(name, "float", 10), lambda: NumList("L", "float", 10)),
+    ("decimal, midpoint", lambda name: EulerTourNum(name, "decimal", 0), lambda: NumList("L", "decimal", 0)),
+    ("decimal, MSD 10", lambda name: EulerTourNum(name, "decimal", 10), lambda: NumList("L", "decimal", 10)),
+)
+
+
+def bench_rules(n_build, n_dyn, depths):
+    names = [k for k, _, _ in _RULES]
+    print("\n### Placement rules\n")
+    print("Where a new position goes between two neighbors: the midpoint, or the left neighbor plus half "
+          "the gap rounded at its most significant digit in base 2 or 10 (MSD), the rule of the original "
+          "List.cs. Same Euler tour and density rule as above; rational positions always take the mediant.\n")
+    print(f"#### Renumberings while building trees ({n_build:,} nodes)\n")
+    row("shape", *names)
+    row("---", *["---:"] * len(names))
+    for shape in SHAPES:
+        row(shape, *[f"{_build_tour(make, shape, n_build)[0].list.renumber_count:,}" for _, make, _ in _RULES])
+    print(f"\n#### Renumberings while growing one list ({n_build:,} cells)\n")
+    row("pattern", *names)
+    row("---", *["---:"] * len(names))
+    for pattern in ("append", "prepend", "both ends, alternating", "one gap, from one side",
+                    "one gap, alternating sides", "hot spots"):
+        cells = []
+        for _, _, make in _RULES:
+            q = make()
+            _grow_list(q, pattern, n_build)
+            cells.append(f"{q.renumber_count:,}")
+        row(pattern, *cells)
+    print(f"\n#### Insertions with one query each ({n_dyn:,} nodes; µs per step, best of three runs)\n")
+    row("depth", *names)
+    row("---:", *["---:"] * len(names))
+    for depth in depths:
+        steps = dynamic_workload(n_dyn, depth, 1)
+        cells, ref = [f"{depth:,}"], None
+        for _, make, _ in _RULES:
+            sec, ans = best(_tour_runner(lambda: make("E")), steps)
+            assert ref is None or ans == ref
+            ref = ans
+            cells.append(f"{sec / len(steps) * 1e6:.2f}")
+        row(*cells)
+
+
+_TREES = (
+    ("DTree, rational", lambda name: DTree(name)),
+    ("DTree, integer", lambda name: DTree(name, positions="integer")),
+    ("EulerTree, rational", lambda name: EulerTree(name)),
+    ("EulerTree, integer", lambda name: EulerTree(name, positions="integer")),
+)
+
+
+def _tree_runner(make):
+    """Like run_dtree, for any tree made by make(name)."""
+    def run(steps):
+        t, answers = make("D"), []
+        nodes = [None] * (len(steps) + 1)
+        for p, c, qs in steps:
+            if c == 1:
+                nodes[1] = t.insert("n0", "n1")
+                nodes[0] = t.get_node("n0")
+            else:
+                nodes[c] = t.insert(nodes[p], f"n{c}")
+            for u, v in qs:
+                answers.append(t.can_reach(nodes[u], nodes[v]))
+        return answers
+    return run
+
+
+def bench_euler(n_build, n_dyn, depths, set_n, set_depth, k, queries):
+    names = [n for n, _ in _TREES]
+    print("\n### DTree and EulerTree\n")
+    print("DTree keeps two lists, Q1 and Q2; EulerTree (triordinal.dtree.euler) keeps Q1 alone, with its "
+          "closing cells, and decides reachability by whether a node lies inside another's block. Both "
+          "with rational positions (the default) and with integer positions (positions=\"integer\").\n")
+    print(f"#### Building trees ({n_build:,} nodes): seconds, and renumberings (summed over the lists)\n")
+    row("shape", *[f"{x} [s]" for x in names], *[f"renumberings, {x}" for x in names])
+    row("---", *["---:"] * (2 * len(names)))
+    for shape in SHAPES:
+        times, counts, ref = [], [], None
+        for _, make in _TREES:
+            rnd = random.Random(1)
+            t, ns = make("B"), ["n0"]
+            start = time.perf_counter()
+            for i in range(1, n_build):
+                parent = "n0" if shape == "star (inner node)" and i <= 2 else SHAPES[shape](i, ns, rnd)
+                t.insert(parent, f"n{i}")
+                ns.append(f"n{i}")
+            times.append(f"{time.perf_counter() - start:.2f}")
+            lists = [t._q1] + ([t._q2] if t._q2 is not None else [])
+            counts.append(f"{sum(q.renumber_count for q in lists):,}")
+            assert ref is None or t.q1 == ref
+            ref = t.q1
+        row(shape, *times, *counts)
+
+    print(f"\n#### Insertions with one query each ({n_dyn:,} nodes; µs per step, best of three runs)\n")
+    row("depth", *names)
+    row("---:", *["---:"] * len(names))
+    for depth in depths:
+        steps = dynamic_workload(n_dyn, depth, 1)
+        cells, ref = [f"{depth:,}"], None
+        for _, make in _TREES:
+            sec, ans = best(_tree_runner(make), steps)
+            assert ref is None or ans == ref
+            ref = ans
+            cells.append(f"{sec / len(steps) * 1e6:.2f}")
+        row(*cells)
+
+    print(f"\n#### Queries ({set_n:,} nodes, depth {set_depth:,}; single pairs: 1,000,000 random pairs of "
+          f"handles; and/or: a set of {k:,} nodes, {queries:,} query nodes; µs per query)\n")
+    rnd = random.Random(4)
+    parents = [None] + [i - 1 if i < set_depth else rnd.randrange(set_depth) for i in range(1, set_n)]
+    S = [f"n{s}" for s in rnd.sample(range(set_n), k)]
+    U = [f"n{rnd.randrange(set_n)}" for _ in range(queries)]
+    pairs = [(f"n{rnd.randrange(set_n)}", f"n{rnd.randrange(set_n)}") for _ in range(1_000_000)]
+    columns = {}
+    for label, make in _TREES:
+        t = make("S")
+        for c in range(1, set_n):
+            t.insert(f"n{parents[c]}", f"n{c}")
+        hs = [(t.get_node(u), t.get_node(v)) for u, v in pairs]
+        f = t.can_reach
+        start = time.perf_counter()
+        single = [f(u, v) for u, v in hs]
+        col = {"single pairs": (time.perf_counter() - start) / len(hs), "_ans single pairs": single}
+        del hs
+        uh = [t.get_node(u) for u in U]
+        vmin, vmax, umin, umax = t.vmin(S), t.vmax(S), t.umin(S), t.umax(S)
+        for name, g in (("reaches all", vmin.reaches_all), ("reaches some", vmax.reaches_some),
+                        ("reached by all", umax.reached_by_all), ("reached by some", umin.reached_by_some)):
+            start = time.perf_counter()
+            col["_ans " + name] = [g(u) for u in uh]
+            col[name] = (time.perf_counter() - start) / queries
+        columns[label] = col
+    row("question", *names)
+    row("---", *["---:"] * len(names))
+    for q in ("single pairs", "reaches all", "reaches some", "reached by all", "reached by some"):
+        answers = [columns[x]["_ans " + q] for x in names]
+        assert all(a == answers[0] for a in answers), q
+        row(q, *[f"{columns[x][q] * 1e6:.3f}" for x in names])
+
+    print("\n#### Memory, measured with tracemalloc\n")
+    row("structure", "nodes", "bytes per node")
+    row("---", "---:", "---:")
+    for label, make in _TREES:
+        gc.collect()
+        tracemalloc.start()
+        rnd = random.Random(1)
+        t = make("M")
+        for i in range(1, n_build):
+            t.insert(f"n{rnd.randrange(i)}", f"n{i}")
+        size = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        row(label + ", random tree", f"{n_build:,}", f"{size / n_build:,.0f}")
+        del t
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sizes", nargs="*", type=int, help="tree sizes (default: 10000 100000)")
     ap.add_argument("--quick", action="store_true", help="small sizes for a fast check")
     ap.add_argument("--dynamic", action="store_true", help="only the dynamic updates and the tree view")
     ap.add_argument("--review", action="store_true", help="only the patterns from the review of 1.8.0")
+    ap.add_argument("--prior-art", action="store_true", help="only the comparison with prior art")
+    ap.add_argument("--euler", action="store_true", help="only DTree against EulerTree, by kind of position")
     ap.add_argument("--note", default="", help="remark written into the report (e.g. machine state)")
     ap.add_argument("--no-save", action="store_true", help="do not write a Markdown report")
     args = ap.parse_args()
@@ -652,6 +1129,14 @@ def main():
 
 
 def run(args):
+    if args.euler:
+        print(f"DTree benchmarks, Python {sys.version.split()[0]}")
+        _euler(args.quick)
+        return
+    if args.prior_art:
+        print(f"DTree benchmarks, Python {sys.version.split()[0]}")
+        _prior_art(args.quick)
+        return
     if args.review:
         print(f"DTree benchmarks, Python {sys.version.split()[0]}")
         _review(args.quick)
@@ -681,6 +1166,26 @@ def run(args):
         bench_dynamic(20_000, [10, 100, 1_000, 10_000], [1_000, 2_000, 5_000])
         bench_tree_view(20_000, [10, 100, 1_000, 10_000], 5_000)
     _review(args.quick)
+    _prior_art(args.quick)
+    _euler(args.quick)
+
+
+def _euler(quick):
+    if quick:
+        bench_euler(10_000, 5_000, [10, 1_000, 5_000], 10_000, 1_000, 100, 20_000)
+    else:
+        bench_euler(100_000, 20_000, [10, 1_000, 10_000], 100_000, 1_000, 1_000, 100_000)
+
+
+def _prior_art(quick):
+    if quick:
+        bench_prior_art(10_000, 5_000, [10, 1_000, 5_000], [10, 100, 1_000], 10_000, 1_000, 100, 20_000)
+        bench_positions(10_000, 5_000, [10, 1_000, 5_000])
+        bench_rules(10_000, 5_000, [10, 1_000, 5_000])
+    else:
+        bench_prior_art(100_000, 20_000, [10, 1_000, 10_000], [10, 100, 1_000], 100_000, 1_000, 1_000, 100_000)
+        bench_positions(100_000, 20_000, [10, 1_000, 10_000])
+        bench_rules(100_000, 20_000, [10, 1_000, 10_000])
 
 
 def _review(quick):

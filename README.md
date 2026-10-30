@@ -12,7 +12,7 @@ Triordinal encodes the topology of directed trees and graphs by linear orders. I
 | Package | Python | NuGet | Depends on | License |
 |---|---|---|---|---|
 | DList: list with rational positions | `triordinal-dlist` (`triordinal.dlist`) | `Triordinal.DList` | nothing | MIT |
-| DTree: directed trees | `triordinal-dtree` (`triordinal.dtree`) | `Triordinal.DTree` | DList | MIT |
+| DTree: directed trees, on two lists (`DTree`) or one (`EulerTree`) | `triordinal-dtree` (`triordinal.dtree`, `triordinal.dtree.euler`) | `Triordinal.DTree` | DList | MIT |
 | DGraph: directed graphs (planned) | `triordinal-dgraph` (`triordinal.dgraph`) | `Triordinal.DGraph` | DList | to be decided |
 
 DTree and DGraph do not depend on each other; both build on DList only.
@@ -21,10 +21,10 @@ DTree and DGraph do not depend on each other; both build on DList only.
 
 ## What Is New, in Short
 
-- **Known:** whether *u* is an ancestor of *v* can be decided from pre- and post-order positions (Dietz, 1982), and such positions can be kept up to date under insertions (Dietz & Sleator, 1987; Bender et al., 2002). These methods project the tree onto **one list**, an Euler tour or the numbering of one traversal, from which both positions are read.
-- **DTree** keeps **two independent lists**, `Q1` and `Q2`, each a projection of the tree in its own right and each updated at insertion points known in advance (a new child goes last among its siblings in `Q1`, first in `Q2`). Every node is a point in the plane `Q1` × `Q2`, and *u* reaches *v* exactly when *v* lies below and to the right of *u*. In other words, `Q1` and `Q2` are the left-first and the right-first depth-first traversals of the tree, together topology-preserving, and DTree keeps them up to date without ever running a traversal.
-- **And/or queries are intrinsic.** A set of nodes is itself represented as a point of that plane, a *constructed node* (`VMin`, `VMax`, `UMin`, `UMax`): "does *u* reach all of S?" is one comparison, "does *u* reach some of S?" a binary search, and both stay valid as the tree changes. With a single list such questions can be worked out case by case, but they are not part of the representation.
-- **Why independent projections matter:** in a tree, `Q2` could still be derived from `Q1` and the parent links; in a directed graph it cannot. Reachability in a graph needs two or three independent orders (its order dimension), and any further analysis has to work with them. DTree is the tree case of this; DGraph, planned here, maintains such orders for directed graphs incrementally, including graphs with cycles: a cycle is closed through a proxy of its head vertex, so the orders stay acyclic without collapsing strongly connected components into single vertices. For general directed graphs, no traversal produces such orders; DGraph has to construct them.
+- **For trees, the encoding itself is classical.** Whether *u* is an ancestor of *v* can be decided from pre- and post-order positions (Dietz, 1982), and such positions can be kept up to date under insertions (Dietz & Sleator, 1987; Bender et al., 2002), usually as an Euler tour: an open and a close position for each node in one list. DTree's `Q1` and `Q2` hold the same information: every node is a point in the plane `Q1` × `Q2`, and `Q2` is the post-order reversed. In the benchmarks, the Euler tour on one list is faster than DTree's two lists and needs less memory (see [Comparison with prior art](#comparison-with-prior-art)).
+- **Constructed nodes for and/or queries**, an idea of the author (2021): a set of nodes is represented as a point of that plane (`VMin`, `VMax`, `UMin`, `UMax`), so "does *u* reach all of S?" is one comparison, "does *u* reach some of S?" a binary search, and both stay valid as the tree changes. They work on any encoding with two positions per node, the Euler tour included.
+- **Rational positions**, also an idea of the author: a new position is the mediant of its neighbors, and a region is renumbered only when a denominator grows too large. Rational labels as such are known (floating-point intervals, Amagasa et al., 2003; nested intervals with Farey fractions, Tropashko, 2005). Against integer labels with the same renumbering rule, as in classical order maintenance, they avoid renumbering where new positions keep going into the same gap: appends at either end, nodes with many children, a gap filled from one side, where integer labels are relabeled every few dozen insertions. In time this does not pay off: in C#, integer labels are faster, because their relabeling is cheap and a comparison of integers costs half as much as one of fractions.
+- **Why independent orders matter: graphs.** In a tree, the second order follows from the first: it is the post-order. In a directed graph it does not. Reachability in a graph needs two or three independent orders (its order dimension), and each order has a block structure of its own: the same vertex may have a different anchor in each Q. One list with an open and a close position per vertex holds a single structure of nested blocks, so it cannot represent them. DTree is the tree case of this; DGraph, planned here, maintains such orders for directed graphs incrementally, including graphs with cycles: a cycle is closed through a proxy of its head vertex, so the orders stay acyclic without collapsing strongly connected components into single vertices. For general directed graphs, no traversal produces such orders; DGraph has to construct them.
 
 The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The C# implementation and a WPF viewer are in [`csharp/`](csharp/).
 
@@ -48,6 +48,8 @@ The insertion points of a new node are known in advance (see the [paper](#paper)
 - P. F. Dietz. Maintaining order in a linked list. *STOC 1982*, 122–127.
 - P. F. Dietz, D. D. Sleator. Two algorithms for maintaining order in a list. *STOC 1987*, 365–372.
 - M. A. Bender, R. Cole, E. D. Demaine, M. Farach-Colton, J. Zito. Two simplified algorithms for maintaining order in a list. *ESA 2002*, LNCS 2461, 152–164.
+- T. Amagasa, M. Yoshikawa, S. Uemura. QRS: A robust numbering scheme for XML documents. *ICDE 2003*, 705–707.
+- V. Tropashko. Nested intervals tree encoding in SQL. *ACM SIGMOD Record* 34(2), 2005, 47–52. doi:10.1145/1083784.1083793.
 
 ### Positions
 
@@ -61,8 +63,14 @@ The two implementations use different limits:
 | renumbering when | a denominator would exceed 64 bits | a denominator would exceed 2⁴⁰, or a numerator 2⁶¹ |
 | renumbered positions | k/2³² | k/2²⁰ |
 
+## Comparison with Prior Art
+
+The benchmarks (`python -m triordinal.dtree.bench --prior-art`, `-- bench prior-art`) compare DTree with the Euler tour on one list (same rational positions), with the Euler tour on integer labels, with pre/post numbers recomputed lazily before a query that follows a change, and with the parent walk of a classical tree. All answer the same queries, checked against each other; and/or queries use each encoding's own constructed points. Results: [`docs/prior-art.md`](docs/prior-art.md).
+
 ## Key Features
 
+- Two encodings of a tree with the same API: `DTree` on two lists, `Q1` and `Q2`, and `EulerTree` on one list (`Q1` with its closing cells, the Euler tour), which is faster and smaller for trees
+- Rational positions (the default) or integer positions (`positions="integer"`), the user's choice
 - Single-rooted directed tree; no aliasing, no duplicate nodes
 - Reachability check in O(1) via positions in `Q1` and `Q2`
 - Insertion in O(1): the end of every subtree is marked by a closing cell (plus the occasional local renumbering)
@@ -153,6 +161,16 @@ t.q1, t.q2              # (['A', 'B', 'C'], ['A', 'B', 'C'])
 a, c = t.get_node("A"), t.get_node("C")
 t.can_reach(a, c)       # True, two position comparisons
 d = t.insert(a, "D")
+```
+
+The same tree on one list, the Euler tour (faster and smaller for trees; no `Q2`):
+
+```python
+from triordinal.dtree.euler import EulerTree
+
+e = EulerTree("E1")                      # positions="integer" for integer positions
+e.insert("A", "B")
+e.can_reach("A", "B")   # True
 ```
 
 Load a sample tree (`parent: child1; child2` per line):

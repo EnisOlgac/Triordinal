@@ -8,14 +8,23 @@ The `DTree` class represents a symbolic directed tree with a unique root and int
 
 ## Constructor
 
-### `DTree(string id, bool strict = false)`
+### `DTree(string id, bool strict = false, Positions positions = Positions.Rational)`
 Create a new tree with a given identifier.
 - Initializes a new directed tree with the given identifier.
 - The root is determined implicitly as the source of the first inserted edge.
 - Q1 and Q2 projections are initialized automatically.
 - `strict`: queries about nodes (`CanReach`, `CanNotReach`, `IsAncestor`, `IsDescendant`, `IsRoot` and the queries of constructed nodes) throw for a name that is not in the tree (`KeyNotFoundException`) or a handle of a removed node (`ArgumentException`) instead of answering `false`. `Contains` and `SameSubtree` are membership tests and never throw. Python: `DTree(tree_id="P1", strict=False)`, raising `KeyError` in both cases.
 
+- `positions`: the kind of position in Q1 and Q2, `Positions.Rational` (mediants, the default) or `Positions.Integer` (midpoints in [0, 2⁶²], as in classical order maintenance). Integer positions are faster to compare; rational positions are renumbered far less often (see [prior-art.md](prior-art.md)). Python: `positions="rational"` or `"integer"`.
+
 Every operation checks its arguments before it changes anything, so an operation that throws leaves the tree as it was. Node names are non-empty strings other than the markers `[` and `]`.
+
+### `EulerTree(string id = "E1", bool strict = false, Positions positions = Positions.Rational)`
+The tree on one list: DTree's Q1 with its closing cells, the classical Euler-tour encoding. Namespace `Triordinal.DTree.Euler` (package `Triordinal.DTree`); Python: `from triordinal.dtree.euler import EulerTree`.
+- The subtree of *u* is the block from *u* to its closing cell (*u* alone for a leaf); *u* reaches *v* exactly when *v* lies strictly inside *u*'s block. Two comparisons, as in DTree.
+- Every method of DTree below is available, with the same meaning; the constructed nodes use the end of each member's block in place of its Q2 position.
+- `Q2` does not exist (C#: `NotSupportedException`; Python: `AttributeError` for `Q2` and `q2`).
+- `EulerTree.FromFile(path, treeId, strict, positions)` reads a description file into an EulerTree.
 
 ## Core Methods
 

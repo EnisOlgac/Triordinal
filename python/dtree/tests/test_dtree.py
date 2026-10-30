@@ -131,16 +131,31 @@ def ref_euler(children, root, reverse=False):
     return out
 
 
+def two(t):
+    """The tree keeps Q2 as well (DTree; an EulerTree keeps Q1 only)."""
+    return t._q2 is not None
+
+
+def lists(t):
+    return [t._q1, t._q2] if two(t) else [t._q1]
+
+
+def rational(t):
+    return t.positions == "rational"
+
+
 def check(tc, t, ref):
-    tc.assertTrue(labels_strictly_increase(t._q1))
-    tc.assertTrue(labels_strictly_increase(t._q2))
+    for q in lists(t):
+        tc.assertTrue(labels_strictly_increase(q))
     tc.assertEqual(raw_cells(t._q1), ref_euler(ref.children, ref.root))
-    tc.assertEqual(raw_cells(t._q2), ref_euler(ref.children, ref.root, reverse=True))
+    if two(t):
+        tc.assertEqual(raw_cells(t._q2), ref_euler(ref.children, ref.root, reverse=True))
     nodes = ref.nodes()
     tc.assertEqual(t.size, len(nodes))
     tc.assertEqual(t.root, ref.root)
     tc.assertEqual(t.q1, ref_preorder(ref.children, ref.root))
-    tc.assertEqual(t.q2, ref_preorder(ref.children, ref.root, reverse=True))
+    if two(t):
+        tc.assertEqual(t.q2, ref_preorder(ref.children, ref.root, reverse=True))
     par = dict(ref.parent)
     for v in nodes:
         anc = ref_ancestors(par, v) + [ref.root]  # root has no parent entry
@@ -201,7 +216,8 @@ class TestDocumentedExamples(unittest.TestCase):
         t.insert("A", "B")
         t.insert("A", "C")  # B and C are not connected
         self.assertTrue(t.Q1.is_left_of("B", "C"))
-        self.assertTrue(t.Q2.is_left_of("C", "B"))
+        if two(t):
+            self.assertTrue(t.Q2.is_left_of("C", "B"))
         self.assertEqual(list(t.Q1), t.q1)
 
     def test_insert_rules(self):
@@ -231,7 +247,8 @@ class TestDocumentedExamples(unittest.TestCase):
         t = build()
         self.assertEqual(t.delete_subtree("B"), ["B", "C", "D"])
         self.assertEqual(t.q1, ["A", "E"])
-        self.assertEqual(t.q2, ["A", "E"])
+        if two(t):
+            self.assertEqual(t.q2, ["A", "E"])
         with self.assertRaises(ValueError):
             t.delete_subtree("A")
 
@@ -604,7 +621,8 @@ class TestSiblingInsert(unittest.TestCase):
         self.assertEqual(t.children("A"), ["W", "B", "X", "D"])
         self.assertEqual(t.children("B"), ["C0", "C"])
         self.assertEqual(t.q1, ["A", "W", "B", "C0", "C", "X", "D"])
-        self.assertEqual(t.q2, ["A", "D", "X", "B", "C", "C0", "W"])
+        if two(t):
+            self.assertEqual(t.q2, ["A", "D", "X", "B", "C", "C0", "W"])
         self.assertTrue(t.can_reach("A", "X") and not t.can_reach("B", "X"))
         self.assertEqual(t.subtree_last("A"), "D")
 
@@ -627,7 +645,8 @@ class TestSiblingInsert(unittest.TestCase):
         t = DTree.from_file(os.path.join(EXAMPLES, "siblings.csx"))
         self.assertEqual(t.children("01"), ["02", "04", "06", "05"])
         self.assertEqual(t.q1, ["01", "02", "03a", "03", "04", "06", "05"])
-        self.assertEqual(t.q2, ["01", "05", "06", "04", "02", "03", "03a"])
+        if two(t):
+            self.assertEqual(t.q2, ["01", "05", "06", "04", "02", "03", "03a"])
 
     def test_description_lines(self):
         t = DTree()
@@ -726,8 +745,8 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertFalse(t.can_reach("v5000", "v0"))
         # a chain nests every new node into the gap of its parent: renumbering keeps the
         # positions strictly increasing and the denominators bounded
-        self.assertTrue(labels_strictly_increase(t._q1) and labels_strictly_increase(t._q2))
-        self.assertTrue(all(c.den.bit_length() <= 64 for q in (t._q1, t._q2) for c in cells(q)))
+        self.assertTrue(all(labels_strictly_increase(q) for q in lists(t)))
+        self.assertTrue(all(c.den.bit_length() <= 64 for q in lists(t) for c in cells(q)))
 
     def test_wide_node(self):
         t = DTree()
@@ -735,8 +754,9 @@ class TestNoSizeLimit(unittest.TestCase):
             t.insert("r", f"c{i}")
         self.assertEqual(t.subtree_size("r"), 5001)
         self.assertFalse(t.can_reach("c1", "c2"))
-        self.assertEqual(t.q2[:3], ["r", "c4999", "c4998"])
-        self.assertTrue(labels_strictly_increase(t._q2))
+        if two(t):
+            self.assertEqual(t.q2[:3], ["r", "c4999", "c4998"])
+        self.assertTrue(all(labels_strictly_increase(q) for q in lists(t)))
 
     def test_growth_at_both_ends(self):
         from triordinal.dtree import DList
@@ -754,7 +774,8 @@ class TestNoSizeLimit(unittest.TestCase):
         t.insert("r", "y")
         for i in range(5000):
             t.insert("x", f"c{i}")  # star under an inner node: same gap every time
-        self.assertEqual((t.Q1.renumber_count, t.Q2.renumber_count), (0, 0))
+        if rational(t):                       # integer positions halve the gap every time
+            self.assertEqual([q.renumber_count for q in lists(t)], [0] * len(lists(t)))
         self.assertTrue(t.can_reach("x", "c4999"))
         self.assertFalse(t.can_reach("c0", "c1"))
 
@@ -767,10 +788,10 @@ class TestNoSizeLimit(unittest.TestCase):
             t.insert(left, f"n{i}")
             if i % 2 == 0:
                 left = f"n{i}"
-        self.assertGreater(t.Q2.renumber_count, 0)
-        self.assertTrue(labels_strictly_increase(t._q1))
-        self.assertTrue(labels_strictly_increase(t._q2))
-        for q in (t._q1, t._q2):
+        self.assertGreater(sum(q.renumber_count for q in lists(t)), 0)
+        for q in lists(t):
+            self.assertTrue(labels_strictly_increase(q))
+        for q in lists(t):
             self.assertTrue(all(c.den.bit_length() <= 64 for c in cells(q)))
 
     def test_random_list_operations(self):
@@ -807,16 +828,16 @@ class TestNoSizeLimit(unittest.TestCase):
         for i in range(3000):
             t.insert("r", f"x{i}")
             t.insert("a", f"y{i}")
-        self.assertTrue(labels_strictly_increase(t._q1))
-        self.assertTrue(labels_strictly_increase(t._q2))
+        for q in lists(t):
+            self.assertTrue(labels_strictly_increase(q))
         self.assertTrue(t.can_reach("a", "y2999"))
         self.assertFalse(t.can_reach("x0", "y0"))
 
 
 def snapshot(t):
     """Everything an operation could change: both lists cell by cell, positions, parents, names."""
-    pos = [[(c.name, c.num, c.den) for c in cells(q)] for q in (t._q1, t._q2)]
-    return (raw_cells(t._q1), raw_cells(t._q2), pos, t._parent, sorted(t._nodes), t.root,
+    pos = [[(c.name, c.num, c.den) for c in cells(q)] for q in lists(t)]
+    return ([raw_cells(q) for q in lists(t)], pos, t._parent, sorted(t._nodes), t.root,
             {n.name: [k.name for k in (n.kids or ())] for n in t._nodes.values()})
 
 
@@ -898,12 +919,14 @@ class TestReviewPatterns(unittest.TestCase):
         self.assertEqual(raw_cells(t._q1), ["A", "B", ")A"])
         t.insert("B", "C")
         self.assertEqual(raw_cells(t._q1), ["A", "B", "C", ")B", ")A"])
-        self.assertEqual(raw_cells(t._q2), ["A", "B", "C", ")B", ")A"])
+        if two(t):
+            self.assertEqual(raw_cells(t._q2), ["A", "B", "C", ")B", ")A"])
         t.delete("C")                                    # B has no children left
         self.assertEqual(raw_cells(t._q1), ["A", "B", ")A"])
         t.delete_subtree("B")
         self.assertEqual(raw_cells(t._q1), ["A"])
-        self.assertEqual(raw_cells(t._q2), ["A"])
+        if two(t):
+            self.assertEqual(raw_cells(t._q2), ["A"])
         t.insert("A", "B")
         t.insert("A", "C")
         t.cut_n_paste("C", "B")
@@ -920,7 +943,9 @@ class TestNoPartialState(unittest.TestCase):
             t = DTree()
             with self.assertRaises(exc, msg=args):
                 t.insert(*args)
-            self.assertEqual((t.size, t.root, t.q1, t.q2, len(t.Q1)), (0, None, [], [], 0), args)
+            self.assertEqual((t.size, t.root, t.q1, len(t.Q1)), (0, None, [], 0), args)
+            if two(t):
+                self.assertEqual(t.q2, [])
             self.assertEqual(raw_cells(t._q1), [])
             t.insert("A", "B")                         # the tree is still usable
             self.assertEqual(t.q1, ["A", "B"])
@@ -977,7 +1002,7 @@ class TestReadOnlyProjections(unittest.TestCase):
         t.insert("A", "B")
         t.insert("B", "C")
         t.insert("A", "D")
-        for q in (t.Q1, t.Q2):
+        for q in ([t.Q1, t.Q2] if two(t) else [t.Q1]):
             for name in ("insert_after", "insert_before", "remove", "cut_block", "paste_block_after"):
                 self.assertFalse(hasattr(q, name), name)
         with self.assertRaises(AttributeError):
@@ -988,9 +1013,10 @@ class TestReadOnlyProjections(unittest.TestCase):
         t.insert("A", "B")
         t.insert("B", "C")
         t.insert("A", "D")
-        q1, q2 = t.Q1, t.Q2
+        q1 = t.Q1
         self.assertEqual((list(q1), q1.to_list(True), len(q1)), (["A", "B", "C", "D"], [SOURCE, "A", "B", "C", "D", SINK], 4))
-        self.assertEqual(list(q2), ["A", "D", "B", "C"])
+        if two(t):
+            self.assertEqual(list(t.Q2), ["A", "D", "B", "C"])
         self.assertEqual((q1.next("C"), q1.prev("D"), q1.next("D"), q1.prev("A")), ("D", "C", SINK, SOURCE))
         self.assertTrue(q1.is_left_of("C", "D") and q1.precedes("A", "C") and q1.is_right_of("D", "C"))
         self.assertTrue(q1.is_self_or_left_of("B", "B") and q1.is_self_or_right_of("B", "B"))
@@ -998,7 +1024,7 @@ class TestReadOnlyProjections(unittest.TestCase):
         self.assertLess(q1.index("C"), q1.index("D"))
         self.assertIsNone(q1.index("Z"))
         self.assertEqual((q1.source, q1.sink, q1.name), (SOURCE, SINK, "P1.Q1"))
-        self.assertTrue(q1.is_same_as(t.Q1) and not q1.is_same_as(q2))
+        self.assertTrue(q1.is_same_as(t.Q1) and (not two(t) or not q1.is_same_as(t.Q2)))
         self.assertEqual(repr(q1), "P1.Q1: [A, B, C, D]")
         self.assertIs(t.Q1, q1)                       # one live view per list
         t.insert("C", "E")

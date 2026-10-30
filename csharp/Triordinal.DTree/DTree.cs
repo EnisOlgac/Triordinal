@@ -19,7 +19,7 @@ namespace DirectedTrees {
         internal DNode? Up;                     // parent; the SOURCE sentinel for the root
         internal List<DNode>? Kids;             // children in Q1 order
         internal DList.Cell C1 = null!;         // position in Q1
-        internal DList.Cell C2 = null!;         // position in Q2
+        internal DList.Cell C2 = null!;         // position in Q2 (null in an EulerTree)
         internal DList.Cell? E1;                // closing cell in Q1 (only while the node has children)
         internal DList.Cell? E2;                // closing cell in Q2 (likewise)
 
@@ -113,26 +113,42 @@ namespace DirectedTrees {
     /// Every method is available with node names and, for speed, with <see cref="DNode"/>
     /// handles, which refer to their positions directly (the idea of using addresses as ids is
     /// Enis Olgac's, from his original implementation).
+    /// Positions are rational by default; Positions.Integer gives integer positions.
     /// Design and API: Enis Olgac. This C# version mirrors the Python reference implementation,
     /// which was written with Claude (Anthropic).
     /// </remarks>
-    public sealed class DTree {
+    public class DTree {
         private readonly Dictionary<string, DNode> _nodes = new();
         private readonly DNode _source;         // sentinel: parent of the root
         private readonly DList _q1;
-        private readonly DList _q2;
+        private readonly DList? _q2;            // null in an EulerTree (Q1 only)
+        private readonly Projection? _v2;
         private readonly List<string> _edgeLog = new();
         internal int Reshapes;                  // counts deletions and moves; insertions keep the order of existing nodes
+        internal readonly bool Single;          // EulerTree: Q1 only, reachability by blocks
+        private readonly bool _int;             // integer positions: compared directly
 
-        public DTree(string treeId = "P1", bool strict = false) {
+        public DTree(string treeId = "P1", bool strict = false, Positions positions = Positions.Rational)
+            : this(treeId, strict, positions, false) { }
+
+        /// <summary>For EulerTree: one list (Q1 with closing cells) when single is set.</summary>
+        private protected DTree(string treeId, bool strict, Positions positions, bool single) {
             TreeId = treeId;
             Strict = strict;
-            _q1 = new DList(treeId + ".Q1");
-            _q2 = new DList(treeId + ".Q2");
+            Single = single;
+            _int = positions == Positions.Integer;
+            _q1 = new DList(treeId + ".Q1", positions);
             Q1 = new Projection(_q1);
-            Q2 = new Projection(_q2);
-            _source = new DNode(Marker.Source, null) { C1 = _q1.FirstCell, C2 = _q2.FirstCell };
+            _source = new DNode(Marker.Source, null) { C1 = _q1.FirstCell };
+            if (!single) {
+                _q2 = new DList(treeId + ".Q2", positions);
+                _v2 = new Projection(_q2);
+                _source.C2 = _q2.FirstCell;
+            }
         }
+
+        /// <summary>The kind of position in the lists: rational (the default) or integer.</summary>
+        public Positions Positions => _q1.Kind;
 
         public string TreeId { get; }
 
@@ -148,15 +164,20 @@ namespace DirectedTrees {
         /// '#', "--" or "**" are skipped, "@@" ends the description; any other line without ':',
         /// '>' or '&lt;' throws ArgumentException.
         /// </summary>
-        public static DTree FromFile(string path, string? treeId = null, bool strict = false) {
-            var tree = new DTree(treeId ?? System.IO.Path.GetFileNameWithoutExtension(path), strict);
+        public static DTree FromFile(string path, string? treeId = null, bool strict = false, Positions positions = Positions.Rational) {
+            var tree = new DTree(treeId ?? System.IO.Path.GetFileNameWithoutExtension(path), strict, positions);
+            tree.ReadFile(path);
+            return tree;
+        }
+
+        private protected void ReadFile(string path) {
+            var tree = this;
             foreach (var raw in File.ReadLines(path)) {
                 var line = raw.Trim().TrimStart('﻿');
                 if (line.Length == 0 || line.StartsWith('#') || line.StartsWith("--") || line.StartsWith("**")) continue;
                 if (line.StartsWith("@@")) break;
                 tree.AddLine(line);
             }
-            return tree;
         }
 
         /// <summary>
@@ -228,7 +249,7 @@ namespace DirectedTrees {
             var s = CheckSibling(sibling, child);
             var p = s.Up!;
             int i = p.Kids!.IndexOf(s);
-            var n = Link(child, p, i + 1, End1(s), s.C2.Prev!);
+            var n = Link(child, p, i + 1, End1(s), Single ? null : s.C2.Prev!);
             _edgeLog.Add($"({s.Name} > {child})");
             return n;
         }
@@ -244,7 +265,7 @@ namespace DirectedTrees {
             var s = CheckSibling(sibling, child);
             var p = s.Up!;
             int i = p.Kids!.IndexOf(s);
-            var n = Link(child, p, i, s.C1.Prev!, End2(s));
+            var n = Link(child, p, i, s.C1.Prev!, Single ? null : End2(s));
             _edgeLog.Add($"({s.Name} < {child})");
             return n;
         }
@@ -260,10 +281,13 @@ namespace DirectedTrees {
         private DNode MakeRoot(string name) {
             var n = new DNode(name, this) {
                 C1 = _q1.InsertNewAfter(name, _q1.FirstCell),
-                C2 = _q2.InsertNewAfter(name, _q2.FirstCell),
                 Up = _source,
             };
-            n.C1.Node = n.C2.Node = n;
+            n.C1.Node = n;
+            if (!Single) {
+                n.C2 = _q2!.InsertNewAfter(name, _q2.FirstCell);
+                n.C2.Node = n;
+            }
             _source.Kids = new List<DNode> { n };
             _nodes[name] = n;
             return n;
@@ -273,13 +297,16 @@ namespace DirectedTrees {
         /// Create a child of p at position index among p's children (null: last), linked after the
         /// given cells. All checks are done; the name is registered last.
         /// </summary>
-        private DNode Link(string name, DNode p, int? index, DList.Cell q1After, DList.Cell q2After) {
+        private DNode Link(string name, DNode p, int? index, DList.Cell q1After, DList.Cell? q2After) {
             var n = new DNode(name, this) {
                 C1 = _q1.InsertNewAfter(name, q1After),
-                C2 = _q2.InsertNewAfter(name, q2After),
                 Up = p,
             };
-            n.C1.Node = n.C2.Node = n;
+            n.C1.Node = n;
+            if (!Single) {
+                n.C2 = _q2!.InsertNewAfter(name, q2After!);
+                n.C2.Node = n;
+            }
             var kids = p.Kids ??= new List<DNode>();
             if (index is int i) kids.Insert(i, n); else kids.Add(n);
             _nodes[name] = n;
@@ -294,15 +321,18 @@ namespace DirectedTrees {
         private void Open(DNode p) {
             if (p.E1 != null) return;
             p.E1 = _q1.InsertNewAfter(null, p.C1);
-            p.E2 = _q2.InsertNewAfter(null, p.C2);
-            p.E1.Node = p.E2.Node = p;
+            p.E1.Node = p;
+            if (!Single) {
+                p.E2 = _q2!.InsertNewAfter(null, p.C2);
+                p.E2.Node = p;
+            }
         }
 
         /// <summary>Remove p's closing cells once p has no children left.</summary>
         private void Close(DNode p) {
             if (p.E1 == null) return;
             _q1.RemoveCell(p.E1);
-            _q2.RemoveCell(p.E2!);
+            if (!Single) _q2!.RemoveCell(p.E2!);
             p.E1 = p.E2 = null;
         }
 
@@ -354,7 +384,7 @@ namespace DirectedTrees {
                 foreach (var c in node.Kids) c.Up = parent;
             }
             _q1.RemoveCell(node.C1);
-            _q2.RemoveCell(node.C2);
+            if (!Single) _q2!.RemoveCell(node.C2);
             Close(node);
             if (siblings.Count == 0) {
                 parent.Kids = null;
@@ -370,7 +400,7 @@ namespace DirectedTrees {
             Own(node);
             if (node.Up == _source) throw new InvalidOperationException("the root cannot be deleted");
             var cells = _q1.CutBlockCells(node.C1, End1(node));
-            _q2.CutBlockCells(node.C2, End2(node));
+            if (!Single) _q2!.CutBlockCells(node.C2, End2(node));
             var removed = new List<DNode>();
             foreach (var c in cells) if (c.Name != null) removed.Add((DNode)c.Node!);
             var parent = node.Up!;
@@ -394,10 +424,10 @@ namespace DirectedTrees {
             Own(newParent);
             var u = subtreeRoot;
             if (u.Up == _source) throw new InvalidOperationException("the root cannot be moved");
-            if (newParent == u || Reaches(u, newParent))
+            if (newParent == u || Reach(u, newParent))
                 throw new InvalidOperationException("newParent lies inside the subtree being moved");
             var block1 = _q1.CutBlockCells(u.C1, End1(u));
-            var block2 = _q2.CutBlockCells(u.C2, End2(u));
+            var block2 = Single ? null : _q2!.CutBlockCells(u.C2, End2(u));
             var old = u.Up!;
             old.Kids!.Remove(u);
             if (old.Kids.Count == 0) {
@@ -407,7 +437,7 @@ namespace DirectedTrees {
             // Same placement rule as Insert: Q2 directly after the parent,
             // Q1 directly before the parent's closing cell.
             Open(newParent);
-            _q2.PasteCellsAfter(block2, newParent.C2);
+            if (!Single) _q2!.PasteCellsAfter(block2!, newParent.C2);
             _q1.PasteCellsAfter(block1, newParent.E1!.Prev!);
             u.Up = newParent;
             (newParent.Kids ??= new List<DNode>()).Add(u);
@@ -433,18 +463,19 @@ namespace DirectedTrees {
         /// <summary>Read-only view of the Q1 projection, for list-level checks (IsLeftOf, Index, ...).</summary>
         public Projection Q1 { get; }
 
-        /// <summary>Read-only view of the Q2 projection, as Q1.</summary>
-        public Projection Q2 { get; }
+        /// <summary>Read-only view of the Q2 projection, as Q1. An EulerTree has none (NotSupportedException).</summary>
+        public Projection Q2 => _v2 ?? throw new NotSupportedException("an EulerTree keeps Q1 only; it has no Q2");
 
         public int Size => _nodes.Count;
 
         /// <summary>For tests: the lists themselves, closing cells included.</summary>
         internal DList List1 => _q1;
-        internal DList List2 => _q2;
+        internal DList? List2 => _q2;
         public List<string> Nodes => _q1.ToList();
         public string EdgeLog => string.Join("\n", _edgeLog);
 
-        public override string ToString() => $"DTree('{TreeId}', size={Size})\n  {_q1}\n  {_q2}";
+        public override string ToString() =>
+            $"{GetType().Name}('{TreeId}', size={Size})\n  {_q1}" + (Single ? "" : $"\n  {_q2}");
 
         /// <summary>Handle of the node with this name. Throws if absent.</summary>
         public DNode GetNode(string name) => Require(name);
@@ -526,13 +557,39 @@ namespace DirectedTrees {
             var a = Lookup(u);
             if (a == null) return false;
             var b = Lookup(v);
-            return b != null && Reaches(a, b);
+            return b != null && Reach(a, b);
         }
 
         /// <summary>Reachability on handles: two position comparisons, no lookup. False for removed nodes (Strict: throws).</summary>
-        public bool CanReach(DNode u, DNode v) => Live(u) && Live(v) && Reaches(u, v);
+        public bool CanReach(DNode u, DNode v) => Live(u) && Live(v) && Reach(u, v);
 
-        internal static bool Reaches(DNode u, DNode v) => DList.Less(u.C1, v.C1) && DList.Less(u.C2, v.C2);
+        /// <summary>
+        /// u reaches v. Two lists: u precedes v in Q1 and in Q2. One list (EulerTree): v lies strictly
+        /// inside u's block in Q1, before u's closing cell. Integer positions are compared directly.
+        /// </summary>
+        internal bool Reach(DNode u, DNode v) {
+            if (_int) {
+                if (u.C1.Num >= v.C1.Num) return false;
+                return Single ? v.C1.Num < End1(u).Num : u.C2.Num < v.C2.Num;
+            }
+            if (!DList.Less(u.C1, v.C1)) return false;
+            return Single ? DList.Less(v.C1, End1(u)) : DList.Less(u.C2, v.C2);
+        }
+
+        /// <summary>
+        /// x precedes y in the second coordinate: Q2, or in one list the end of the block in reverse
+        /// order (y's block ends before x's), which takes the place of the Q2 position.
+        /// </summary>
+        internal bool Lt2(DNode x, DNode y) {
+            if (Single) {
+                DList.Cell a = End1(y), b = End1(x);
+                return _int ? a.Num < b.Num : DList.Less(a, b);
+            }
+            return _int ? x.C2.Num < y.C2.Num : DList.Less(x.C2, y.C2);
+        }
+
+        /// <summary>x precedes y in Q1.</summary>
+        internal bool Lt1(DNode x, DNode y) => _int ? x.C1.Num < y.C1.Num : DList.Less(x.C1, y.C1);
 
         public bool CanNotReach(string u, string v) => !CanReach(u, v);
         public bool CanNotReach(DNode u, DNode v) => !CanReach(u, v);
@@ -591,7 +648,7 @@ namespace DirectedTrees {
         public List<string> Path(string u, string v) {
             var a = Require(u);
             var b = Require(v);
-            if (a != b && !Reaches(a, b)) throw new InvalidOperationException($"'{u}' cannot reach '{v}'");
+            if (a != b && !Reach(a, b)) throw new InvalidOperationException($"'{u}' cannot reach '{v}'");
             var result = new List<string>();
             for (var n = b; ; n = n.Up!) {
                 result.Add(n.Name);
