@@ -2,6 +2,15 @@
 
 All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
 
+## 2.4.1
+
+DList code cleared after a review; no position changes, and Python and C# still renumber at the same moments. All packages move to 2.4.1; `triordinal-dtree` 2.4.1 needs `triordinal-dlist` 2.4.1.
+
+- `cut_block` / `CutBlock` checks that `last` follows `first` before anything is unlinked and raises `ValueError` / `ArgumentException` otherwise, leaving the list as it was. Before, the walk ran past SINK and failed with an `AttributeError` / `NullReferenceException`.
+- C# only, without any change in behavior: `Less` and `Precedes` use the one comparison `Lt` instead of repeating its first test, and a pasted block no longer allocates a small array for its bounds check.
+
+Tests: a block given in the wrong order is rejected and the list stays intact (Python and C#).
+
 ## 2.4.0
 
 DList, in Python and C#: a single cell can be moved directly after or before another cell (`_move_cell_after` / `_move_cell_before`; C# `MoveCellAfter` / `MoveCellBefore`, internal like the other cell-level operations and visible to DTree and DGraph). The cell keeps its identity and its name stays registered; only its own position is recomputed, as for an insertion (a mediant, or a local renumbering when it cannot be stored). The markers cannot be moved, nothing can follow SINK or precede SOURCE, and moving a cell to where it already is changes nothing. Needed by DGraph, whose insertion moves vertices cell by cell; DTree does not use it. All packages move to 2.4.0; `triordinal-dtree` 2.4.0 needs `triordinal-dlist` 2.4.0.

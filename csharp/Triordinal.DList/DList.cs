@@ -280,10 +280,7 @@ namespace Triordinal {
         internal Cell CellOf(string name) => Get(name);
 
         /// <summary>x lies strictly left of y (exact rational comparison).</summary>
-        internal static bool Less(Cell x, Cell y) {
-            if (x.Den != 0 && y.Den != 0) return (Int128)x.Num * y.Den < (Int128)y.Num * x.Den;
-            return Lt(x, y);
-        }
+        internal static bool Less(Cell x, Cell y) => Lt(x, y);
 
         /// <summary>
         /// Create a cell for a new name directly after anchor; a null name makes an unnamed cell.
@@ -403,12 +400,13 @@ namespace Triordinal {
                 PasteCount++;
                 return;
             }
-            foreach (long j in new long[] { 1, m }) {
-                Int128 num = a + (Int128)j * c, den = b + (Int128)j * d;
-                if (den > Limit || num > Limit || num < -Limit) {
-                    Rebalance(cells[0], cells[^1], m);
-                    return;
-                }
+            bool Fits(long i) {
+                Int128 num = a + (Int128)i * c, den = b + (Int128)i * d;
+                return den <= Limit && num <= Limit && num >= -Limit;
+            }
+            if (!Fits(1) || !Fits(m)) {
+                Rebalance(cells[0], cells[^1], m);
+                return;
             }
             for (int j = 1; j <= m; j++) {
                 cells[j - 1].Num = a + j * c;                   // bounded by the check above
@@ -455,12 +453,7 @@ namespace Triordinal {
         public bool IsSelfOrRightOf(string v, string u) => v == u || Lt(Get(u), Get(v));
 
         /// <summary>Strict order: u lies left of v (same as IsLeftOf).</summary>
-        public bool Precedes(string u, string v) {
-            var x = Get(u);
-            var y = Get(v);
-            if (x.Den != 0 && y.Den != 0) return (Int128)x.Num * y.Den < (Int128)y.Num * x.Den;
-            return Lt(x, y);
-        }
+        public bool Precedes(string u, string v) => Lt(Get(u), Get(v));
 
         /// <summary>Place name directly after anchor; moves it if already present (List.cs: InsAfter).</summary>
         public void InsertAfter(string name, string anchor) {
@@ -501,6 +494,8 @@ namespace Triordinal {
             Cell a = Get(first), b = Get(last);
             if (a == _first || a == _last || b == _first || b == _last)
                 throw new InvalidOperationException("markers cannot be removed");
+            for (var c = a; c != b; c = c.Next!)                // checked before anything is unlinked
+                if (c == _last) throw new ArgumentException($"'{last}' does not follow '{first}' in {Name}");
             var names = new List<string>();
             foreach (var c in CutBlockCells(a, b))
                 if (c.Name != null) names.Add(c.Name);

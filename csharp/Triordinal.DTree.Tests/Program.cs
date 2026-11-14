@@ -699,6 +699,8 @@ namespace DirectedTrees.Tests {
             Throws<ArgumentException>(() => q.InsertNewAfter("a", q.FirstCell), "names stay unique");
             Throws<ArgumentException>(() => q.InsertNewAfter(null, q.LastCell), "nothing follows SINK");
             Throws<InvalidOperationException>(() => q.CutBlock(Marker.Source, "a"), "markers cannot be cut");
+            Throws<ArgumentException>(() => q.CutBlock("c", "a"), "2.4.1: the block must run from first to last");
+            Seq(q.ToList(), new[] { "a", "c" }, "list intact after a rejected CutBlock");
         }
 
         public static void RandomInserts() {

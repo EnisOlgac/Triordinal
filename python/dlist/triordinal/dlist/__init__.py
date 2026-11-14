@@ -446,7 +446,13 @@ class DList:
         (unnamed cells inside the block are removed as well)."""
         if first in (SOURCE, SINK) or last in (SOURCE, SINK):
             raise ValueError("markers cannot be removed")
-        cells = self._cut_cells(self._cells[first], self._cells[last], forget=True)
+        a, b = self._cells[first], self._cells[last]
+        c = a
+        while c is not b:                                # checked before anything is unlinked
+            if c is self.last:
+                raise ValueError(f"{last!r} does not follow {first!r} in {self.name}")
+            c = c.next
+        cells = self._cut_cells(a, b, forget=True)
         return [c.name for c in cells if c.name is not None]
 
     def paste_block_after(self, names: List[str], anchor: str) -> None:
@@ -473,4 +479,4 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 __all__ = ["DList", "SOURCE", "SINK", "POSITIONS"]
-__version__ = "2.4.0"
+__version__ = "2.4.1"

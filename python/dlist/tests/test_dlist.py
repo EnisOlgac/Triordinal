@@ -126,6 +126,10 @@ class TestUnnamedCells(unittest.TestCase):
             q._insert_cell_after(None, q.last)       # nothing follows SINK
         with self.assertRaises(ValueError):
             q.cut_block(SOURCE, "a")                 # markers cannot be cut
+        before = list(q)
+        with self.assertRaises(ValueError):
+            q.cut_block("c", "a")                    # 2.4.1: the block must run from first to last
+        self.assertEqual(list(q), before)            # and the list is left as it was
 
 
 class TestMoveCell(unittest.TestCase):
