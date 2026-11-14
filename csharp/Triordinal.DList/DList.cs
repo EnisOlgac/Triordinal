@@ -298,6 +298,27 @@ namespace Triordinal {
             return cell;
         }
 
+        /// <summary>
+        /// Move an existing cell directly after anchor; only its own position is recomputed (a
+        /// mediant, or a local renumbering when it cannot be stored). Used by DGraph's moves.
+        /// </summary>
+        internal void MoveCellAfter(Cell cell, Cell anchor) {
+            if (cell == _first || cell == _last) throw new InvalidOperationException("markers cannot be moved");
+            if (anchor == _last) throw new ArgumentException("nothing can follow SINK");
+            if (cell == anchor || anchor.Next == cell) return;
+            Unlink(cell);
+            LinkAfter(cell, anchor);
+        }
+
+        /// <summary>Move an existing cell directly before anchor (see MoveCellAfter).</summary>
+        internal void MoveCellBefore(Cell cell, Cell anchor) {
+            if (cell == _first || cell == _last) throw new InvalidOperationException("markers cannot be moved");
+            if (anchor == _first) throw new ArgumentException("nothing can precede SOURCE");
+            if (cell == anchor || anchor.Prev == cell) return;
+            Unlink(cell);
+            LinkAfter(cell, anchor.Prev!);
+        }
+
         internal void RemoveCell(Cell cell) {
             Unlink(cell);
             if (cell.Name != null) _cells.Remove(cell.Name);

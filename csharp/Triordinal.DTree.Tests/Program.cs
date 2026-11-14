@@ -46,6 +46,7 @@ namespace DirectedTrees.Tests {
                 ("DList: many end insertions, then one gap (no overflow)", Tests.DListNoOverflow),
                 ("DList: unnamed cells are invisible by name", Tests.DListUnnamedCells),
                 ("DList: pasted blocks keep the order (random moves)", Tests.DListRandomBlockMoves),
+                ("DList: single cells moved after or before a cell (random moves)", Tests.DListMoveCells),
                 ("DList: integer block shifted, spread or renumbered", Tests.DListIntegerPaste),
                 ("DList: rational block gets the chain of mediants", Tests.DListRationalPaste),
                 ("DList: renumbering only when a mediant cannot be stored", Tests.DListLazyRenumbering),
@@ -519,6 +520,45 @@ namespace DirectedTrees.Tests {
 
         private static void Move(DList q, string first, string last, string anchor) =>
             q.PasteCellsAfter(q.CutBlockCells(q.CellOf(first), q.CellOf(last), forget: false), q.CellOf(anchor));
+
+        // -- 2.4.0: single cells moved directly after or before another cell (DGraph's moves) ---------
+
+        public static void DListMoveCells() {
+            foreach (var kind in new[] { Positions.Rational, Positions.Integer }) {
+                var rnd = new Random(5);
+                var q = new DList("Q", kind);
+                var reference = Enumerable.Range(0, 200).Select(i => $"v{i}").ToList();
+                foreach (var n in reference) q.InsertBefore(n, Marker.Sink);
+                var unnamed = q.InsertNewAfter(null, q.CellOf("v10"));     // unnamed cells move too
+                for (int step = 0; step < 5000; step++) {
+                    int i = rnd.Next(reference.Count), j = rnd.Next(reference.Count - 1);
+                    if (j >= i) j++;
+                    string x = reference[i], y = reference[j];
+                    var cx = q.CellOf(x);
+                    reference.RemoveAt(i);
+                    if (rnd.Next(2) == 0) { q.MoveCellAfter(cx, q.CellOf(y)); reference.Insert(reference.IndexOf(y) + 1, x); }
+                    else { q.MoveCellBefore(cx, q.CellOf(y)); reference.Insert(reference.IndexOf(y), x); }
+                    if (!ReferenceEquals(q.CellOf(x), cx)) { Check(false, $"{kind}: the same cell stays registered"); return; }
+                }
+                Seq(q.ToList(), reference.ToArray(), $"{kind}: order after random moves");
+                Check(q.PositionsStrictlyIncrease(), $"{kind}: positions increase");
+                Check(unnamed.Next != null, $"{kind}: unnamed cell still linked");
+
+                var r = new DList("R", kind);
+                foreach (var n in new[] { "a", "b", "c" }) r.InsertBefore(n, Marker.Sink);
+                DList.Cell a = r.CellOf("a"), b = r.CellOf("b"), c = r.CellOf("c");
+                r.MoveCellAfter(b, a); r.MoveCellBefore(b, c); r.MoveCellAfter(b, b);   // no-ops
+                Seq(r.ToList(), new[] { "a", "b", "c" }, $"{kind}: no-ops");
+                r.MoveCellAfter(a, r.FirstCell); r.MoveCellBefore(c, r.LastCell);       // next to the markers
+                r.MoveCellBefore(c, a);
+                Seq(r.ToList(), new[] { "c", "a", "b" }, $"{kind}: moved");
+                Throws<InvalidOperationException>(() => r.MoveCellAfter(r.FirstCell, a), $"{kind}: SOURCE cannot be moved");
+                Throws<InvalidOperationException>(() => r.MoveCellBefore(r.LastCell, a), $"{kind}: SINK cannot be moved");
+                Throws<ArgumentException>(() => r.MoveCellAfter(a, r.LastCell), $"{kind}: nothing follows SINK");
+                Throws<ArgumentException>(() => r.MoveCellBefore(a, r.FirstCell), $"{kind}: nothing precedes SOURCE");
+                Seq(r.ToList(), new[] { "c", "a", "b" }, $"{kind}: list intact");
+            }
+        }
 
         public static void DListRandomBlockMoves() {
             foreach (var kind in new[] { Positions.Rational, Positions.Integer }) {

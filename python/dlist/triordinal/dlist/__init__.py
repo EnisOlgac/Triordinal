@@ -222,6 +222,29 @@ class DList:
         if cell.name is not None:
             del self._cells[cell.name]
 
+    def _move_cell_after(self, cell: _Cell, anchor: _Cell) -> None:
+        """Move an existing cell directly after ``anchor``; only its own position is recomputed
+        (a mediant, or a local renumbering when it cannot be stored). Used by DGraph's moves."""
+        if cell is self.first or cell is self.last:
+            raise ValueError(f"the markers {SOURCE} and {SINK} cannot be inserted or moved")
+        if anchor is self.last:
+            raise ValueError("nothing can follow SINK")
+        if cell is anchor or anchor.next is cell:
+            return
+        self._unlink(cell)
+        self._link_after(cell, anchor)
+
+    def _move_cell_before(self, cell: _Cell, anchor: _Cell) -> None:
+        """Move an existing cell directly before ``anchor`` (see _move_cell_after)."""
+        if cell is self.first or cell is self.last:
+            raise ValueError(f"the markers {SOURCE} and {SINK} cannot be inserted or moved")
+        if anchor is self.first:
+            raise ValueError("nothing can precede SOURCE")
+        if cell is anchor or anchor.prev is cell:
+            return
+        self._unlink(cell)
+        self._link_after(cell, anchor.prev)
+
     def _cut_cells(self, a: _Cell, b: _Cell, forget: bool) -> List[_Cell]:
         """Unlink the contiguous block a..b and return its cells in order. With ``forget``
         their names are removed from the list; otherwise they stay registered, to be pasted
@@ -450,4 +473,4 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 __all__ = ["DList", "SOURCE", "SINK", "POSITIONS"]
-__version__ = "2.3.0"
+__version__ = "2.4.0"

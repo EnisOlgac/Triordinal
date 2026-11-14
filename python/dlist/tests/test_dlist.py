@@ -128,6 +128,59 @@ class TestUnnamedCells(unittest.TestCase):
             q.cut_block(SOURCE, "a")                 # markers cannot be cut
 
 
+class TestMoveCell(unittest.TestCase):
+    """2.4.0: single cells moved directly after or before another cell (DGraph's moves)."""
+    POSITIONS = "rational"
+
+    def test_random_moves_against_a_plain_list(self):
+        rnd = random.Random(5)
+        q = DList("Q", self.POSITIONS)
+        ref = [f"v{i}" for i in range(200)]
+        for n in ref:
+            q.insert_before(n, SINK)
+        unnamed = q._insert_cell_after(None, q._cells["v10"])     # unnamed cells move too
+        for _ in range(5000):
+            x, y = rnd.sample(ref, 2)
+            cx, cy = q._cells[x], q._cells[y]
+            ref.remove(x)
+            if rnd.random() < 0.5:
+                q._move_cell_after(cx, cy)
+                ref.insert(ref.index(y) + 1, x)
+            else:
+                q._move_cell_before(cx, cy)
+                ref.insert(ref.index(y), x)
+            self.assertIs(q._cells[x], cx)                         # the same cell, still registered
+        self.assertEqual(list(q), ref)
+        c = q.first
+        while c.next is not None:                                  # positions increase along the list
+            self.assertTrue(DList._lt(c, c.next))
+            c = c.next
+        self.assertIsNotNone(unnamed.next)
+
+    def test_no_ops_and_markers(self):
+        q = DList("Q", self.POSITIONS)
+        for n in "abc":
+            q.insert_before(n, SINK)
+        a, b, c = (q._cells[n] for n in "abc")
+        q._move_cell_after(b, a)                                   # already there
+        q._move_cell_before(b, c)
+        q._move_cell_after(b, b)
+        self.assertEqual(list(q), ["a", "b", "c"])
+        q._move_cell_after(a, q.first)                             # after SOURCE is allowed
+        q._move_cell_before(c, q.last)                             # before SINK is allowed
+        q._move_cell_before(c, a)
+        self.assertEqual(list(q), ["c", "a", "b"])
+        for bad in (lambda: q._move_cell_after(q.first, a), lambda: q._move_cell_before(q.last, a),
+                    lambda: q._move_cell_after(a, q.last), lambda: q._move_cell_before(a, q.first)):
+            with self.assertRaises(ValueError):
+                bad()
+        self.assertEqual(list(q), ["c", "a", "b"])
+
+
+class TestMoveCellInteger(TestMoveCell):
+    POSITIONS = "integer"
+
+
 class TestPasteAndLimits(unittest.TestCase):
     """2.3.0: a pasted block is placed as a whole; rational positions renumber only when a
     mediant cannot be stored."""
