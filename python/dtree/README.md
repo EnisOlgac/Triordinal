@@ -1,6 +1,6 @@
 # DTree for Python (triordinal-dtree)
 
-Python implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/Triordinal/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). Python 3.9+.
+Python implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/Triordinal/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). Python 3.10+. How its two lists differ from one list (the Euler tour, `EulerTree`): [One list and two lists](https://github.com/EnisOlgac/Triordinal/blob/main/docs/one-and-two-lists.md).
 
 ```
 pip install triordinal-dtree

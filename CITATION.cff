@@ -9,9 +9,9 @@ authors:
     orcid: "https://orcid.org/0009-0009-7560-6107"
 repository-code: "https://github.com/EnisOlgac/Triordinal"
 license: MIT
-version: "2.4.1"
+version: "2.4.2"
 doi: "10.5281/zenodo.23760809"
-date-released: "2026-11-14"
+date-released: "2026-11-20"
 keywords:
   - directed tree
   - tree topology

@@ -1,6 +1,6 @@
 # Triordinal.DTree
 
-C# implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2: node *u* reaches node *v* if and only if *u* precedes *v* in both. Reachability, including and/or queries over sets of nodes, is answered in O(1) or O(log k) by comparing positions, and stays valid under insertions without recomputation, because the insertion points of a new node are known in advance.
+C# implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2: node *u* reaches node *v* if and only if *u* precedes *v* in both. Reachability, including and/or queries over sets of nodes, is answered in O(1) or O(log k) by comparing positions, and stays valid under insertions without recomputation, because the insertion points of a new node are known in advance. How its two lists differ from one list (the Euler tour, `EulerTree`): [One list and two lists](https://github.com/EnisOlgac/Triordinal/blob/main/docs/one-and-two-lists.md).
 
 ```
 dotnet add package Triordinal.DTree

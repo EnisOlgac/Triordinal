@@ -2,6 +2,14 @@
 
 All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
 
+## 2.4.2
+
+Documentation only; no code changes. All packages move to 2.4.2.
+
+- New page [`docs/one-and-two-lists.md`](docs/one-and-two-lists.md): how `DTree`'s two lists differ from `EulerTree`'s one list (containment and topology, where the next branch begins, navigated traversal, why `DTree` keeps closing cells); linked from the README and from both package READMEs.
+- README: "What DTree's two lists are" replaces "What DTree's second projection is for."
+- Python 3.10 or later (`requires-python = ">=3.10"`): Python 3.9 is past its end of life and no longer tested in CI. With Python 3.9, pip keeps installing 2.4.1.
+
 ## 2.4.1
 
 DList code cleared after a review; no position changes, and Python and C# still renumber at the same moments. All packages move to 2.4.1; `triordinal-dtree` 2.4.1 needs `triordinal-dlist` 2.4.1.
