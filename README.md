@@ -26,7 +26,9 @@ Until then, the package `triordinal-dtree` encodes directed trees in two ways, w
 
 Both answer reachability, and and/or queries over sets of nodes, by comparing positions, without traversing the tree, and both are updated incrementally as the tree changes.
 
-**What DTree's second projection is for.** In a tree, `Q2` adds no information: it follows from `Q1`. DTree keeps it anyway, as the tree case of DGraph, to measure what a second projection costs. Since `DTree` and `EulerTree` share the same code, positions and renumbering, the difference between them is that cost: in C#, DTree takes about 1.5 to 2.5 times EulerTree's update time and a third more memory, while answering queries as fast (see [Comparison with prior art](#comparison-with-prior-art)). These are the baselines for DGraph: on a tree, DGraph is measured against them; in a graph, `Q2` and `Q3` add necessary information about the topology and structure that a tree does not need, and placing them is work beyond these baselines.
+**What DTree's two lists are.** `DTree` is the natural view of a tree: two orders of its nodes that hold its topology by themselves. Even the end of a subtree can be read from them: walking `Q1` from *u*, the subtree ends just before the first node that precedes *u* in `Q2`. One list holds the topology only with delimiters: a pre-order alone, without closing cells, does not determine the tree (a b c may be a chain or a star). In `EulerTree` the closing cells are part of the encoding; in `DTree` they are an optimization, turning the search for the end of a subtree from a walk over it into one step.
+
+The second list has a cost. Since `DTree` and `EulerTree` share the same code, positions and renumbering, the difference between them is that cost: in C#, DTree takes about 1.5 to 2.5 times EulerTree's update time and a third more memory, while answering queries as fast (see [Comparison with prior art](#comparison-with-prior-art)). These are the baselines for DGraph: on a tree, DGraph is measured against them; in a graph, the orders no longer follow from each other, and placing them is work beyond these baselines.
 
 ## What Is New, in Short
 
