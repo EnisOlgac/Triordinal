@@ -1,6 +1,6 @@
 # One List and Two Lists
 
-`triordinal-dtree` encodes a tree in two ways with the same API: `EulerTree` on one list, `DTree` on two. For trees both answer the same queries with the same results. This page explains how they differ in what they store, and what that difference costs.
+This page was written for DTree 2.x, which encoded a tree in two ways with the same API: `EulerTree` on one list, `DTree` on two (since 3.0.0 `triordinal.dtree.two_lists.DTree`). For trees both answer the same queries with the same results. The page explains how they differ in what they store and what that difference costs, and ends with [the way to DTree 3.0](#the-way-to-dtree-30), which came out of this comparison.
 
 ## Containment and topology
 
@@ -95,6 +95,14 @@ What a node carries in the current implementation:
 - a parent link and a children list, shared by both classes. Neither encoding needs them for reachability; the sibling order is in the lists as well.
 
 `DTree` carries the cells twice. The benchmarks ([`prior-art.md`](prior-art.md)) measure the implementations with all of this, not the bare encodings: in C#, `DTree` takes about 1.5 to 2.5 times `EulerTree`'s update time and a third more memory, while answering queries as fast.
+
+## The way to DTree 3.0
+
+The comparison above leaves one question: if two orders imply the end of a block and one list has to store it, does the end have to be stored at all? DTree 3.0 (design by Enis Olgac, November 2026) answers no. It keeps one projection, `Q1`, and the structure in the vertices: a vertex knows its parent, its kids list (read left to right from one end and right to left from the other, so the sibling-reversed order is at hand without a second list), its handle in its parent's kids list, and its cell in `Q1`.
+
+The end of a block is then neither stored nor computed from ranks: the next branch of *u* is its right sibling, or, if *u* is the last kid, the next branch of its parent. The block is a difference list whose tail is that delimiter. The climb to the delimiter is the closing-parenthesis procedure of the Euler tour, done only when it is needed, and the query rarely needs it: it is decided as a cascade of local steps (*v* not after *u*; *u* without kids; *u*'s right sibling; *u*'s last kid), and only 2 to 3 queries in 100 go further in random and reading-order trees. A sequence of only kids, where the climb would be long, is crossed in one step as a *vertical run*.
+
+So DTree 3.0 has neither `Q2` nor closing cells, and so none of the housekeeping listed above: in C# about 280 bytes per node against 380 to 460 for `EulerTree` and 520 to 630 for DTree 2.x, building faster, querying as fast. See the [README](../README.md#structure) and [`API.md`](API.md).
 
 ## Graphs
 

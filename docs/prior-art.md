@@ -1,5 +1,7 @@
 # Comparison with Prior Art
 
+*Written for DTree 2.x (since 3.0.0 `triordinal.dtree.two_lists.DTree`) and EulerTree. DTree 3.0 is compared with both by `bench3`; see the [README](../README.md#comparison-with-prior-art).*
+
 The benchmarks compare DTree with classical encodings of ancestry, implemented as fairly as DTree itself (`python/dtree/triordinal/dtree/prior_art.py`, ported to C# in `csharp/Triordinal.DTree.Tests/PriorArt.cs`):
 
 - **Euler tour, rational:** the parenthesis encoding on one list. Every node has an open and a close cell; *u* is an ancestor of *v* exactly when *v*'s open cell lies between *u*'s open and close cells (Dietz, 1982). The list is the same `DList` with rational positions that DTree uses, so the only difference to DTree is one list instead of two. It keeps no parent or child links (DTree does, for parent queries, sibling insertion, deletion and moves), so its insertions do less bookkeeping.

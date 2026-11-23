@@ -10,8 +10,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "dlist"))
 
-import test_dtree as base  # noqa: E402
-from triordinal.dtree import DTree  # noqa: E402
+import test_two_lists as base  # noqa: E402
+from triordinal.dtree.two_lists import DTree  # noqa: E402
 from triordinal.dtree.euler import EulerTree  # noqa: E402
 
 

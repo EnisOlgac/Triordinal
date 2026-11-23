@@ -1,6 +1,11 @@
-"""DTree: incremental encoding of directed trees by two linear orders Q1 and Q2 (part of Triordinal)."""
+"""DTree: incremental encoding of directed trees (part of Triordinal).
 
-from triordinal.dtree.core import SINK, SOURCE, DList, DNode, DTree, Projection, UMax, UMin, VMax, VMin
+Since 3.0.0 a DTree keeps one projection, Q1, and its structure in the vertices; DTree 2.x on two
+projections remains available as ``triordinal.dtree.two_lists.DTree`` for comparison.
+"""
 
-__all__ = ["DTree", "DNode", "DList", "Projection", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
-__version__ = "2.4.2"
+from triordinal.dlist import SINK, SOURCE, DList
+from triordinal.dtree.core import DNode, DTree, UMax, UMin, VMax, VMin
+
+__all__ = ["DTree", "DNode", "DList", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
+__version__ = "3.0.0"

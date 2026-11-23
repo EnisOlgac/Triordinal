@@ -4,7 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
-using DirectedTrees;
+using DirectedTrees.TwoLists;
 using Triordinal;
 
 using static System.Math;

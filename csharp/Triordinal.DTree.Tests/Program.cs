@@ -23,16 +23,38 @@ using Triordinal.DTree.Euler;
 
 namespace DirectedTrees.Tests {
 
+    // The tests in this file are those of DTree 2.x (two lists), kept as prior art since 3.0.0;
+    // DTree 3.0 is tested in DTree3Tests.cs.
+    using DTree = DirectedTrees.TwoLists.DTree;
+    using DNode = DirectedTrees.TwoLists.DNode;
+    using Projection = DirectedTrees.TwoLists.Projection;
+    using VMin = DirectedTrees.TwoLists.VMin;
+    using VMax = DirectedTrees.TwoLists.VMax;
+    using UMin = DirectedTrees.TwoLists.UMin;
+    using UMax = DirectedTrees.TwoLists.UMax;
+    using ConstructedNode = DirectedTrees.TwoLists.ConstructedNode;
+
     internal static class Program {
         private static int _failures;
         private static int _checks;
 
         private static int Main(string[] args) {
+            if (args.Length > 0 && args[0] == "bench3") {
+                Bench3.Run(args.Skip(1).ToArray());
+                return 0;
+            }
             if (args.Length > 0 && args[0] == "bench") {
                 Report.RunBench(args.Skip(1).ToArray());
                 return 0;
             }
             var tests = new (string Name, Action Body)[] {
+                ("DTree 3.0: random operations vs model, rational", Tests.V3RandomRational),
+                ("DTree 3.0: random operations vs model, integer", Tests.V3RandomInteger),
+                ("DTree 3.0: deep trees", Tests.V3Deep),
+                ("DTree 3.0: a chain is one vertical run", Tests.V3ChainIsOneRun),
+                ("DTree 3.0: examples give the same Q1 and reachability as DTree 2.x", Tests.V3ExamplesMatchTwoLists),
+                ("DTree 3.0: handles", Tests.V3Handles),
+                ("DTree 3.0: errors", Tests.V3Errors),
                 ("readme usage", Tests.ReadmeUsage),
                 ("insert rules", Tests.InsertRules),
                 ("no self reachability", Tests.NoSelfReachability),
@@ -114,7 +136,7 @@ namespace DirectedTrees.Tests {
             RunAll(tests, "");
             // The tree tests once more for each variant: DTree with integer positions, EulerTree (one list)
             // with rational and with integer positions. List-level and prior-art tests do not depend on it.
-            var treeTests = tests.Where(x => !x.Name.StartsWith("DList") && !x.Name.StartsWith("prior art") && !x.Name.StartsWith("EulerTree")).ToArray();
+            var treeTests = tests.Where(x => !x.Name.StartsWith("DList") && !x.Name.StartsWith("prior art") && !x.Name.StartsWith("EulerTree") && !x.Name.StartsWith("DTree 3.0")).ToArray();
             var variants = new (string Name, Func<string, bool, DTree> Make, Func<string, bool, DTree> FromFile)[] {
                 ("DTree, integer", (id, st) => new DTree(id, st, Positions.Integer), (p, st) => DTree.FromFile(p, strict: st, positions: Positions.Integer)),
                 ("EulerTree, rational", (id, st) => new EulerTree(id, st), (p, st) => EulerTree.FromFile(p, strict: st)),

@@ -2,6 +2,21 @@
 
 All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
 
+## 3.0.0
+
+**DTree 3.0: one projection, the structure in the vertices.** Design by Enis Olgac (November 2026); implemented in Python and C# with Claude, tested and measured in C# by Enis Olgac. Not compatible with 2.x. All packages move to 3.0.0; `triordinal-dtree` 3.0.0 needs `triordinal-dlist` 3.0.0 (DList itself is unchanged).
+
+- A vertex keeps its parent, its kids list (read left to right from one end, right to left from the other), its handle in its parent's kids list, and its cell in Q1, the pre-order. There is no second projection (`Q2`) and there are no closing cells.
+- The block of a vertex in Q1 ends before its delimiter: its right sibling, or, for a last kid, its parent's delimiter. `can_reach` decides "v lies in u's block" as a cascade of local steps (Enis Olgac: the query can be decided locally): v is not after u; u has no kids; u's right sibling; u's last kid (if it is a leaf, its next cell is the delimiter); only then the delimiter is looked for. In random and reading-order trees, 2 to 3 queries in 100 reach that last step.
+- Vertical runs: a sequence of only kids is treated as one unit, its members sharing an object that knows the run's top, so the last step crosses it at once (Enis Olgac, from his earlier work on control-flow analysis: a sequence is one vertex until it branches). A run is cut where a vertex gets a second kid and joined where a vertex is left with one kid; only the shorter part gets a new run object, and a run of one vertex needs none (proposed by Claude after an eager version made the review pattern slow: 1,042 µs per round in Python).
+- Insertion: `insert` (last kid), new `insert_first` (first kid, directly after the parent), `insert_before`, `insert_after`; the end of a block is read from the siblings, not stored. Only appending a last kid looks for the delimiter.
+- Constructed nodes (`vmin`, `vmax`, `umin`, `umax`) are built for the query at hand, as Enis Olgac conceived them: the members sorted by their position in Q1 and, for `umin` and `umax`, their delimiters. `add`, `discard`, `may_reach_some` and `may_be_reached_by_some` are gone; build a new one after the tree changes.
+- API, Python and C#: removed are `Q2`/`q2`, the `Q1` and `Q2` views (`Projection`; `q1` / `Q1` is now a plain list), strict mode (a name that is not in the tree always raises `KeyError` / `KeyNotFoundException`), `next_in_q1`, `subtree_last`, `root_to_path`, `path`, `same_subtree`, `source`, `sink`, the list-level checks and the edge log. New: `insert_first`, `children`, `subtree`, `climb_steps`, `run_steps`.
+- DTree 2.x moved unchanged to `triordinal.dtree.two_lists` (C# `DirectedTrees.TwoLists`, folder `TwoLists/`), with its tests; EulerTree derives from it as before. Both are kept for comparison. The WPF viewer uses DTree 2.x, which keeps both lists to draw.
+- New benchmark `python -m triordinal.dtree.bench3` / `-- bench3`: DTree 3.0 against DTree 2.x and EulerTree, all through node handles (in C# at Enis Olgac's request, since DGraph will work by cell access as well). C#, 100,000 nodes, Enis Olgac's NUC: building 0.37 to 0.81 µs per insertion against 0.60 to 2.80; queries 60 to 90 ns, as fast as the others; 285 / 279 bytes per node (random tree / chain) against 383 / 458 (EulerTree) and 523 / 630 (DTree 2.x); the review pattern 1.81 µs per round against 3.14 and 3.45. Behind only when kids are appended under the middle of a long chain (0.55 against 0.13 µs per insertion), where the first kid cuts the run in half.
+- Tests: DTree 3.0 against a brute-force model (random insertions of all four kinds, deletes, subtree deletes and moves, both kinds of position, deep trees), including every vertical run and all four constructed nodes; every example file gives the same Q1 and reachability as DTree 2.x. C#: 207 tests, 0 failures (Enis Olgac's NUC).
+- Docs: README, `docs/API.md` and both package READMEs describe 3.0; `docs/one-and-two-lists.md` has a section on the way to 3.0.
+
 ## 2.4.2
 
 Documentation only; no code changes. All packages move to 2.4.2.

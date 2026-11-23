@@ -44,7 +44,8 @@ import time
 import tracemalloc
 
 import triordinal.dtree as _pkg
-from triordinal.dtree import SINK, SOURCE, DList, DTree
+from triordinal.dlist import DList
+from triordinal.dtree.two_lists import SINK, SOURCE, DTree
 from triordinal.dtree.euler import EulerTree
 from triordinal.dtree.prior_art import EulerTour, EulerTourInt, EulerTourNum, IntList, NumList, PrePostNumbers
 

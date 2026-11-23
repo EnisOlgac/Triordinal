@@ -9,9 +9,9 @@ authors:
     orcid: "https://orcid.org/0009-0009-7560-6107"
 repository-code: "https://github.com/EnisOlgac/Triordinal"
 license: MIT
-version: "2.4.2"
+version: "3.0.0"
 doi: "10.5281/zenodo.23760809"
-date-released: "2026-11-20"
+date-released: "2026-11-22"
 keywords:
   - directed tree
   - tree topology
@@ -23,11 +23,13 @@ keywords:
 abstract: >-
   Triordinal continues DTree (versions 1.0.0 to 1.8.0, doi:10.5281/zenodo.23395710).
   DTree encodes the topology and structure of single-rooted directed trees
-  explicitly, by two linear projections Q1 and Q2: node u reaches node v if
-  and only if u strictly precedes v in both. A classical tree answers such
+  explicitly. Since version 3.0.0 it keeps one linear projection Q1 (the
+  pre-order) and the structure in the vertices: node u reaches node v if and
+  only if v lies after u in Q1 and before u's delimiter, its right sibling or,
+  for a last kid, its parent's delimiter. A classical tree answers such
   questions by walking up parent links—a blind date that only shows the next
-  step. DTree navigates toward the target: two positions tell at once whether
-  it is reachable, independent of depth. The encoding is updated
+  step. DTree navigates toward the target: comparing positions tells whether
+  it is reachable, decided locally in almost every case. The encoding is updated
   incrementally: a new node goes to positions known in advance, and rational
   (mediant) positions mean that inserting a node normally moves no other
   node. Beyond single pairs, and/or queries on the topology (does u reach all

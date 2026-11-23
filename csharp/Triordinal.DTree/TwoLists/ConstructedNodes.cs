@@ -1,6 +1,6 @@
 using Triordinal;
 
-namespace DirectedTrees {
+namespace DirectedTrees.TwoLists {
 
     /// <summary>
     /// A constructed node for a set S of tree nodes (E. Olgac, "Topology and Structure of Directed

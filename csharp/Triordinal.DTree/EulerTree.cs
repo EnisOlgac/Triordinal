@@ -15,7 +15,7 @@ namespace Triordinal.DTree.Euler {
     /// lists and is faster to maintain; see docs/prior-art.md. Ported from the Python reference
     /// triordinal.dtree.euler.
     /// </remarks>
-    public sealed class EulerTree : global::DirectedTrees.DTree {
+    public sealed class EulerTree : global::DirectedTrees.TwoLists.DTree {
         public EulerTree(string treeId = "E1", bool strict = false, Positions positions = Positions.Rational)
             : base(treeId, strict, positions, true) { }
 

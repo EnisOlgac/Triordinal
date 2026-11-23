@@ -1,5 +1,7 @@
 # The Parent Walk's Home Ground
 
+*Written for DTree 2.x (since 3.0.0 `triordinal.dtree.two_lists.DTree`); its measurements and its tree-view example use the 2.x API. DTree 3.0 is measured by `bench3`; see the [README](../README.md#comparison-with-prior-art).*
+
 Classical trees link every node to its parent, and usually to its children as well. To find out whether *u* is an ancestor of *v*, a program climbs from *v* towards the root and checks whether it meets *u*: the *parent walk*. It needs no preparation and no extra memory, and inserting a node costs one link. This page says where it is the right tool, where it stops being one, and how the benchmarks show both.
 
 ## Bottom-up questions, at the cost of the depth

@@ -1,5 +1,5 @@
 ﻿using System.Windows;
-using DirectedTrees;
+using DirectedTrees.TwoLists;
 
 namespace Tree.View {
     public partial class MainWindow : Window {

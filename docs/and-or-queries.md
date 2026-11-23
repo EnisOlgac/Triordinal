@@ -1,5 +1,7 @@
 # And/or Queries on the Topology
 
+*Written for DTree 2.x (since 3.0.0 `triordinal.dtree.two_lists.DTree`). In DTree 3.0 constructed nodes are built for the query at hand; see [`API.md`](API.md#andor-queries-on-the-topology).*
+
 Many questions about the topology of a tree concern a set of nodes rather than a single one. Does *u* reach all of them (*u* → *s*₁ **and** *u* → *s*₂ **and** …), or some of them (**or**)? Is *v* reached by all of them, or by some? `DTree` answers each of these with one comparison against a *constructed node*, with no climbing through the tree. This page explains the idea, shows where it is exact and where it only filters, and compares it with the classical representation of a tree by parent and child links.
 
 Without a constructed node, `DTree` can also answer each question exactly by comparing with every element of the set; section 7 compares both ways.

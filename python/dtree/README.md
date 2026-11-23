@@ -1,6 +1,6 @@
 # DTree for Python (triordinal-dtree)
 
-Python implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/Triordinal/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). Python 3.10+. How its two lists differ from one list (the Euler tour, `EulerTree`): [One list and two lists](https://github.com/EnisOlgac/Triordinal/blob/main/docs/one-and-two-lists.md).
+Python implementation of `DTree`, the incremental encoding of the topology of directed trees. Since 3.0.0 a DTree keeps one projection, Q1 (the pre-order), and the structure of the tree in its vertices; reachability is decided by comparing positions in Q1. See the [repository](https://github.com/EnisOlgac/Triordinal), the [API reference](https://github.com/EnisOlgac/Triordinal/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408). Python 3.10+. How one list and two lists differ, and the way to 3.0: [One list and two lists](https://github.com/EnisOlgac/Triordinal/blob/main/docs/one-and-two-lists.md).
 
 ```
 pip install triordinal-dtree
@@ -12,85 +12,64 @@ The package is imported as `triordinal.dtree` (`from triordinal.dtree import DTr
 from triordinal.dtree import DTree
 
 t = DTree("P1")
-t.insert("A", "B")
+t.insert("A", "B")       # the first insert makes A the root
 t.insert("B", "C")
+t.insert("A", "D")       # D becomes A's last kid
 
 t.can_reach("A", "C")    # True
 t.path_to_root("C")      # ['C', 'B', 'A']
-t.q1, t.q2               # (['A', 'B', 'C'], ['A', 'B', 'C'])
+t.q1                     # ['A', 'B', 'C', 'D']
 
-t.insert("A", "D")
 t.cut_n_paste("C", "D")  # move subtree C under D
-t.delete("B")            # B's children (none left) move up to A
+t.delete("B")            # B's kids (none left) move up to A
 t.delete_subtree("D")    # removes D and C
 ```
 
-Load one of the example files (`parent: child1; child2` per line):
+Load one of the example files (`parent: child1; child2` per line; `sibling > child` and `sibling < child` insert after or before a sibling):
 
 ```python
 t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 ```
 
+DTree 3.0 is not compatible with 2.x. The earlier encodings remain in the package for comparison, with their own API (as documented for 2.4.2): `from triordinal.dtree.two_lists import DTree` (DTree 2.x on Q1 and Q2) and `from triordinal.dtree.euler import EulerTree` (one list with closing cells).
+
 ## API (C# name → Python name)
 
-| C# (docs) | Python |
+| C# | Python |
 |---|---|
-| `DTree(id, strict, positions)` | `DTree(tree_id="P1", strict=False, positions="rational")` (strict: queries raise for unknown nodes; positions: `"rational"` or `"integer"`) |
-| `Triordinal.DTree.Euler.EulerTree` | `from triordinal.dtree.euler import EulerTree` (the tree on one list, same API) |
-| `Insert(parent, child)` | `insert(parent, child)` (last child) |
-| `InsertAfter`, `InsertBefore` | `insert_after(sibling, child)`, `insert_before(sibling, child)` |
-| `AddLine` | `add_line(line)` (`p: c`, `s > c`, `s < c`; also in `from_file`) |
-| `Contains(node)` | `contains(node)` / `node in t` |
-| `GetParent(node)` | `get_parent(node)` (`None` for the root) |
-| `CutNPaste(u, p)` | `cut_n_paste(subtree_root, new_parent)` |
-| `Delete(node)` | `delete(node)`—children move up to the parent |
-| — | `delete_subtree(node)`—removes the node and all descendants |
-| `Q1`, `Q2` | `Q1`, `Q2` (read-only views of the projections, for list-level checks); `q1`, `q2` (plain lists, without the `[` `]` markers) |
-| `Source`, `Sink` | `source`, `sink` |
+| `DTree(id, positions)` | `DTree(tree_id="P1", positions="rational")` (positions: `"rational"` or `"integer"`) |
+| `FromFile`, `AddLine` | `from_file(path, tree_id=None, positions="rational")`, `add_line(line)` |
+| `Insert(parent, child)` | `insert(parent, child)`: last kid; the first call makes `parent` the root |
+| `InsertFirst(parent, child)` | `insert_first(parent, child)`: first kid, directly after the parent in Q1 |
+| `InsertBefore`, `InsertAfter` | `insert_before(sibling, child)`, `insert_after(sibling, child)` |
+| `Delete(node)` | `delete(node)`: the kids take the node's place among its siblings |
+| `DeleteSubtree(node)` | `delete_subtree(node)`: returns the removed names in Q1 order |
+| `CutNPaste(u, p)` | `cut_n_paste(subtree_root, new_parent)`: as the new parent's last kid |
 | `CanReach`, `CanNotReach` | `can_reach`, `can_not_reach` |
-| `IsRoot`, `IsLeaf` | `is_root`, `is_leaf` |
 | `IsAncestor`, `IsDescendant` | `is_ancestor`, `is_descendant` |
-| `SameSubtree`, `SubtreeSize` | `same_subtree`, `subtree_size` (plus `subtree`) |
-| `Depth` | `depth` (root = 0) |
-| `PathToRoot`, `RootToPath` | `path_to_root`, `root_to_path` (plus `path(u, v)`) |
-| `GetNode`, `TryGetNode`, `DNode` | `get_node`, `try_get_node`, `DNode` (node handles; `insert` returns one) |
-| `SubtreeLast` | `subtree_last` (last node of a subtree in Q1) |
-| `NextInQ1` | `next_in_q1` (next node in Q1, the display order; `None` at the end) |
+| `GetParent`, `Children` | `get_parent` (`None` for the root), `children` |
+| `IsRoot`, `IsLeaf`, `Depth` | `is_root`, `is_leaf`, `depth` (root = 0) |
+| `PathToRoot`, `Subtree`, `SubtreeSize` | `path_to_root`, `subtree` (Q1 order), `subtree_size` |
+| `Q1` | `q1` (a list of names, without the markers); iterating the tree gives the same order |
+| `Contains`, `Count`, `Root` | `contains(node)` / `node in t`, `len(t)`, `root` |
+| `GetNode`, `TryGetNode`, `DNode` | `get_node`, `try_get_node`, `DNode` (node handles; every insert returns one) |
+| `DNode.Parent`, `DNode.Children`, `DNode.IsInTree` | `parent`, `children`, `is_in_tree` |
 | `VMin`, `VMax`, `UMin`, `UMax` (of nodes) | `vmin`, `vmax`, `umin`, `umax` |
-| `ReachesAll`, `MayReachSome`, `ReachesSome` | `reaches_all`, `may_reach_some`, `reaches_some` |
-| `ReachedByAll`, `MayBeReachedBySome`, `ReachedBySome` | `reached_by_all`, `may_be_reached_by_some`, `reached_by_some` |
-| `Add`, `Discard`, `Contains` (of a constructed node) | `add`, `discard`, `node in s` |
-| `UMin.Covering` | `covering` (topmost member that reaches a node; `None` if none) |
-
-## EulerTree: the tree on one list
-
-```python
-from triordinal.dtree.euler import EulerTree
-
-t = EulerTree("E1")                     # or EulerTree("E1", positions="integer")
-t.insert("A", "B")
-t.insert("B", "C")
-t.can_reach("A", "C")                   # True: C lies inside A's block of Q1
-```
-
-An EulerTree keeps DTree's Q1 alone, with its closing cells: the subtree of *u* is the block from *u* to its closing cell, and *u* reaches *v* exactly when *v* lies strictly inside it. This is the classical Euler-tour encoding; for trees it holds the same information as DTree's two lists and is faster to maintain. It has DTree's whole API except `Q2` and `q2`. See [the comparison with prior art](https://github.com/EnisOlgac/Triordinal/blob/main/docs/prior-art.md).
+| `ReachesAll`, `ReachesSome` | `reaches_all`, `reaches_some` |
+| `ReachedByAll`, `ReachedBySome`, `Covering` | `reached_by_all`, `reached_by_some`, `covering` |
+| `RenumberCount` | `renumber_count` |
 
 ## Semantics
 
-- Every method accepts a node name or a node handle (`DNode`). `insert` returns the handle of the new node, `get_node(name)` gives the handle of an existing one. A handle refers directly to the node's positions in Q1 and Q2, so `can_reach` on handles is two position comparisons without any lookup by name. Handles of deleted nodes, or of another tree, are rejected (KeyError) or reported as unreachable.
-
-- `can_reach(u, v)` is irreflexive: no node reaches itself, so `can_reach(u, u)` is `False`. (The C# prototype is reflexive.)
-- A name that is not in the tree, or a handle of a removed node, reaches nothing and is reached by nothing: `can_reach` answers `False`. With `DTree(strict=True)`, `can_reach`, `can_not_reach`, `is_ancestor`, `is_descendant`, `is_root` and the queries of constructed nodes raise `KeyError` instead, so a misspelled name does not hide behind a "not reachable"; `contains` and `same_subtree` never raise.
+- Every method accepts a node name or a node handle (`DNode`). A name that is not in the tree raises `KeyError`, and so does a handle of a removed node or of another tree.
+- `can_reach(u, v)` is irreflexive: no node reaches itself. `is_ancestor(u, v)` equals `can_reach(u, v)`.
+- The block of *u* in Q1 runs from its own cell to just before its delimiter: its right sibling, or, when it is the last kid, its parent's delimiter. `can_reach` decides "v lies in u's block" as a cascade of local steps: *v* is not after *u*; *u* has no kids; *u* has a right sibling (or is the root); *u*'s last kid; only then is the delimiter looked for, up through the ancestors that are last kids.
+- A sequence of only kids (a vertical run) is crossed in one step: its members share an object that knows its top. Where a vertex gets a second kid the run is cut, and where it is left with one kid two runs are joined; only the shorter part gets a new run object. A tree that is nothing but a sequence is a list; use `DList` for it.
+- A new kid goes into Q1 directly after its parent (`insert_first`, or the first kid), directly before its right sibling (`insert_before`), or before its parent's delimiter (`insert`, `insert_after` a last kid).
+- `delete(v)` re-attaches v's kids to v's parent, in v's place among its siblings. `delete_subtree(v)` removes v with all its descendants. `cut_n_paste(u, p)` moves the subtree of u under p as p's last kid; p must not lie inside u's subtree.
+- And/or queries: a constructed node (`vmin(S)`, `vmax(S)` with S as the target, `umin(S)`, `umax(S)` with S as the source) is built for the query at hand. It sorts the members by their position in Q1 and, for `umin` and `umax`, finds their delimiters. `reaches_all` and `reached_by_all` are O(1), `reaches_some`, `reached_by_some` and `covering` O(log k). After the tree changes, build it again.
 - Every operation checks its arguments before it changes anything: an operation that raises leaves the tree as it was. Node names are non-empty strings other than the markers `[` and `]`.
-- `Q1` and `Q2` are read-only views: they list the nodes and offer the checks of `DList` (`is_left_of`, `precedes`, `index`, `next`, `prev`, ...), but the tree changes only through `DTree` methods.
-- `is_ancestor(u, v)` equals `can_reach(u, v)` and is likewise proper.
-- `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
-- `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
-- `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
-- And/or queries on the topology: the constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). Members are added with `add` and removed with `discard`. A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. Its members are nodes, not names: a member that was deleted stays out of the set, even if a new node with the same name is inserted later. See [and/or queries on the topology](https://github.com/EnisOlgac/Triordinal/blob/main/docs/and-or-queries.md).
-- A node with children has a closing cell in each list, directly after the last cell of its subtree. A new child goes directly before its parent's closing cell in Q1 and directly after the parent in Q2, so every insertion, deletion and move finds its place in both lists without a search. Closing cells are not nodes and are not shown by `Q1` and `Q2`.
-- `positions="integer"` gives integer positions instead of fractions: midpoints in [0, 2⁶²], as in classical order maintenance. They are faster to compare and renumbered more often.
-- Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Insertion patterns that nest new cells ever deeper into one gap—alternating insertions, and deep chains, whose nodes nest into the gap between their parent and its closing cell—trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
+- Positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves; a region is renumbered only when a new position can no longer be stored. `positions="integer"` gives integer positions instead: midpoints in [0, 2⁶²], faster to compare and renumbered more often. Tree depth and width are unbounded.
 
 ## Tests
 
@@ -98,29 +77,20 @@ An EulerTree keeps DTree's Q1 alone, with its closing cells: the subtree of *u* 
 python -m unittest discover -s tests
 ```
 
-Every operation is checked against a brute-force parent/children model on random trees, including random sequences of deletes and moves.
+`tests/test_dtree.py` checks every operation of DTree 3.0 against a brute-force parent/kids model on random trees, with deletes and moves, both kinds of position and deep trees, including every vertical run and all four constructed nodes; every example file gives the same Q1 and the same reachability as DTree 2.x. The other test files cover DTree 2.x and EulerTree.
 
 ## Benchmarks
 
 The benchmarks come with the package, so you can measure on your own machine:
 
 ```
-python -m triordinal.dtree.bench            # trees of 10,000 and 100,000 nodes
-python -m triordinal.dtree.bench --quick    # a few seconds
-python -m triordinal.dtree.bench --dynamic  # only the dynamic updates and the tree view
-python -m triordinal.dtree.bench --review   # only the patterns from the review of 1.8.0
-python -m triordinal.dtree.bench --prior-art  # only the comparison with prior art (Euler tour, pre/post numbers)
-python -m triordinal.dtree.bench --euler      # only DTree against EulerTree, rational and integer positions
-python -m triordinal.dtree.bench --note "idle machine"   # remark for the report
-python -m triordinal.dtree.bench 1000000    # custom sizes
+python -m triordinal.dtree.bench3           # DTree 3.0 against DTree 2.x and EulerTree
+python -m triordinal.dtree.bench3 --quick   # a few seconds
+python -m triordinal.dtree.bench            # the benchmarks of DTree 2.x and EulerTree (see 2.4.2)
 ```
 
-In a clone of the repository, `python python/benchmarks/bench.py` runs the same code from the sources.
-
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, dynamic updates (insertions with 1 or 10 queries each, and static pre/post numbers at depths 100 and 1,000), and a tree view with expand/collapse; then the complexity patterns from Onur Safi's review of DTree 1.8.0 and the memory per node; finally a comparison with prior art: the parenthesis (Euler-tour) encoding on one list with the same rational positions, and pre/post numbers recomputed lazily (`triordinal/dtree/prior_art.py`). Each dynamic measurement is the best of three runs. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
-
-Every run also writes its tables as a Markdown report to `benchmarks/python/`—in the current directory, or at the repository root when run inside a clone— named after date and time (for example `2026-10-17_14-18.md`), with a header giving the DTree and Python versions, the operating system and the processor; `--no-save` skips it. The C# benchmarks (`dotnet run --project csharp/Triordinal.DTree.Tests -c Release -- bench`) write theirs to `benchmarks/csharp/`.
+`bench3` prints Markdown tables: building and querying random, chain, star and reading-order trees; how often each step of the query cascade decides; the review pattern (a chain grown at the bottom, a child near the top); kids appended under the middle of a chain; random moves; and memory per node. Each timing is the best of three runs, after `gc.collect()`.
 
 ## Provenance
 
-Design and API: Enis Olgac. This Python port was written with Claude (Anthropic) from the C# original and the API reference.
+Design and API: Enis Olgac. This Python implementation was written with Claude (Anthropic); DTree 3.0's structure was designed by Enis Olgac and implemented with Claude.

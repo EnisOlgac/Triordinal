@@ -22,7 +22,7 @@ reversed) and is faster to maintain; see docs/prior-art.md. Positions are ration
 
 from __future__ import annotations
 
-from triordinal.dtree.core import DNode, DTree, UMax, UMin, VMax, VMin, _lt2_euler, _reaches1
+from triordinal.dtree.two_lists import DNode, DTree, UMax, UMin, VMax, VMin, _lt2_euler, _reaches1
 
 __all__ = ["EulerTree", "DNode", "VMin", "VMax", "UMin", "UMax"]
 
