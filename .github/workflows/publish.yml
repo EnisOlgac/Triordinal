@@ -10,6 +10,10 @@ name: publish
 on:
   release:
     types: [published]
+  workflow_dispatch:           # rerun for an existing tag: gh workflow run publish.yml --ref vX.Y.Z
+
+env:
+  TAG: ${{ github.event.release.tag_name || github.ref_name }}
 
 jobs:
   pypi:
@@ -40,7 +44,7 @@ jobs:
       - name: Check version
         run: |
           v=$(python -c "import tomllib; print(tomllib.load(open('python/${{ matrix.package }}/pyproject.toml','rb'))['project']['version'])")
-          test "v$v" = "${{ github.event.release.tag_name }}" || { echo "python/${{ matrix.package }} version $v does not match tag ${{ github.event.release.tag_name }}"; exit 1; }
+          test "v$v" = "$TAG" || { echo "python/${{ matrix.package }} version $v does not match tag $TAG"; exit 1; }
       - name: Build
         run: |
           python -m pip install --upgrade build
@@ -51,10 +55,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp python/explorer/dtree_explorer/explorer.html DTree-Explorer.html
-          gh release upload "${{ github.event.release.tag_name }}" DTree-Explorer.html --clobber
+          gh release upload "$TAG" DTree-Explorer.html --clobber
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true    # a rerun skips packages already on PyPI
 
   nuget:
     runs-on: ubuntu-latest
@@ -76,7 +81,7 @@ jobs:
         run: |
           ls nupkg
           for p in Triordinal.DList Triordinal.DTree; do
-            test -f "nupkg/$p.${GITHUB_REF_NAME#v}.nupkg" || { echo "no $p package for version ${GITHUB_REF_NAME#v}"; exit 1; }
+            test -f "nupkg/$p.${TAG#v}.nupkg" || { echo "no $p package for version ${TAG#v}"; exit 1; }
           done
       - name: NuGet login (short-lived API key via OIDC)
         uses: NuGet/login@v1

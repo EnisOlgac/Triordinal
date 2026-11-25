@@ -31,7 +31,7 @@ dtree-explorer = "dtree_explorer.__main__:main"
 Homepage = "https://github.com/EnisOlgac/Triordinal"
 Source = "https://github.com/EnisOlgac/Triordinal/tree/main/python/explorer"
 Changelog = "https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md"
-"Earlier versions (dtree-explorer)" = "https://github.com/EnisOlgac/DTree-Explorer"
+"Earlier versions" = "https://github.com/EnisOlgac/DTree-Explorer"
 Online = "https://dtree.digraphs.net/"
 Paper = "https://doi.org/10.5772/intechopen.1013408"
 
