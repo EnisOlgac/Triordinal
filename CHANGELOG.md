@@ -2,7 +2,15 @@
 
 All versions are archived on Zenodo, each with its own DOI: Triordinal from 2.0.0 under doi:10.5281/zenodo.23760809, DTree 1.0.0 to 1.8.0 under doi:10.5281/zenodo.23395710.
 
-## 3.0.0
+## 3.1.0
+
+**The DTree Explorer joins Triordinal.** All packages move to 3.1.0; DList and DTree are unchanged.
+
+- The Explorer moved from its own repository (EnisOlgac/DTree-Explorer, published as `dtree-explorer` up to 1.3.3) to `python/explorer`, at Enis Olgac's request, so that it appears next to DList and DTree. On PyPI it is now `triordinal-dtree-explorer`, with the version number of Triordinal; the import name `dtree_explorer` and the command `dtree-explorer` stay. Its history up to 1.4.0 is in [`python/explorer/CHANGELOG.md`](python/explorer/CHANGELOG.md).
+- It is built from the repository's own DList and DTree and its `examples/`, so the page always matches the library of the same commit; the page installs exactly that version of `triordinal-dtree` in the browser.
+- New in the Explorer (prepared as 1.4.0): DTree 3.0 is the default encoding. View 3 shows Q1 as stored and below each node the cell before which its block ends (its delimiter); picking two nodes names the step of the query cascade that decides; the plane uses Q2 read from the children right to left, which DTree 3.0 does not store. DTree 2.x and EulerTree stay as choices.
+- `publish.yml` publishes `triordinal-dtree-explorer` after DList and DTree (GitHub environment `pypi-explorer`) and attaches the page to the release as `DTree-Explorer.html`; `build.yml` runs the Explorer's tests.
+
 
 **DTree 3.0: one projection, the structure in the vertices.** Design by Enis Olgac (November 2026); implemented in Python and C# with Claude, tested and measured in C# by Enis Olgac. Not compatible with 2.x. All packages move to 3.0.0; `triordinal-dtree` 3.0.0 needs `triordinal-dlist` 3.0.0 (DList itself is unchanged).
 

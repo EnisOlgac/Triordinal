@@ -8,4 +8,4 @@ from triordinal.dlist import SINK, SOURCE, DList
 from triordinal.dtree.core import DNode, DTree, UMax, UMin, VMax, VMin
 
 __all__ = ["DTree", "DNode", "DList", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
-__version__ = "3.0.0"
+__version__ = "3.1.0"

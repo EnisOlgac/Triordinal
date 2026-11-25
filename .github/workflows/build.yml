@@ -45,3 +45,6 @@ jobs:
       - name: Test DTree
         working-directory: python/dtree
         run: python -m unittest discover -s tests -v
+      - name: Test the Explorer
+        working-directory: python/explorer
+        run: python -m unittest discover -s tests -v

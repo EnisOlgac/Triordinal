@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "triordinal-dtree"
-version = "3.0.0"
+version = "3.1.0"
 description = "DTree (part of Triordinal): incremental encoding of the topology of directed trees on one projection (Q1) with the structure kept in the vertices: reachability by comparing positions, and/or queries on the topology of the tree, dynamic (incremental) updates"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["triordinal-dlist>=3.0.0,<4"]
+dependencies = ["triordinal-dlist>=3.1.0,<4"]
 authors = [{ name = "Enis Olgac", email = "enis@digraphs.info" }]
 keywords = ["directed tree", "tree topology", "reachability", "and/or queries", "incremental encoding", "dynamic tree", "graph theory", "data structure"]
 classifiers = [

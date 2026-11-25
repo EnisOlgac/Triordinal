@@ -2,8 +2,9 @@ name: publish
 
 # Runs when a GitHub release is published (gh release create vX.Y.Z ...):
 # builds the Python package and the NuGet package, checks that both carry the
-# release version, and uploads them to PyPI (triordinal-dlist, triordinal-dtree) and NuGet
-# (Triordinal.DList, Triordinal.DTree). All packages share one version number.
+# release version, and uploads them to PyPI (triordinal-dlist, triordinal-dtree,
+# triordinal-dtree-explorer) and NuGet (Triordinal.DList, Triordinal.DTree). All packages share one
+# version number. The Explorer's page is rebuilt from this commit and attached to the release.
 # Both uploads use Trusted Publishing: no passwords or API keys are stored in the repository.
 
 on:
@@ -12,22 +13,27 @@ on:
 
 jobs:
   pypi:
-    # One job per package, each with its own GitHub environment (pypi-dlist, pypi-dtree):
+    # One job per package, each with its own GitHub environment (pypi-dlist, pypi-dtree, pypi-explorer):
     # PyPI identifies a trusted publisher by repository, workflow and environment, so each
     # project needs its own environment.
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 1          # triordinal-dlist first, then triordinal-dtree, which needs it
+      max-parallel: 1          # triordinal-dlist first, then triordinal-dtree, which needs it, then the Explorer
       matrix:
-        package: [dlist, dtree]
+        package: [dlist, dtree, explorer]
     environment: pypi-${{ matrix.package }}
     permissions:
       id-token: write          # PyPI Trusted Publishing, no token stored
+      contents: write          # attach the Explorer's page to the release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Build the Explorer's page
+        if: matrix.package == 'explorer'
+        working-directory: python/explorer
+        run: python src/build.py
       - name: Test
         working-directory: python/${{ matrix.package }}
         run: python -m unittest discover -s tests
@@ -39,6 +45,13 @@ jobs:
         run: |
           python -m pip install --upgrade build
           python -m build python/${{ matrix.package }} --outdir dist
+      - name: Attach the Explorer's page to the release
+        if: matrix.package == 'explorer'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp python/explorer/dtree_explorer/explorer.html DTree-Explorer.html
+          gh release upload "${{ github.event.release.tag_name }}" DTree-Explorer.html --clobber
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist

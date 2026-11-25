@@ -13,6 +13,7 @@ Triordinal encodes the topology of directed trees and graphs by linear orders. I
 |---|---|---|---|---|
 | DList: list with rational positions | `triordinal-dlist` (`triordinal.dlist`) | `Triordinal.DList` | nothing | MIT |
 | DTree: directed trees | `triordinal-dtree` (`triordinal.dtree`) | `Triordinal.DTree` | DList | MIT |
+| DTree Explorer: watch the encoding, edge by edge | `triordinal-dtree-explorer` (`dtree_explorer`) | — | DTree | MIT |
 | DGraph: directed graphs (planned) | `triordinal-dgraph` (`triordinal.dgraph`) | `Triordinal.DGraph` | DList | to be decided |
 
 DTree and DGraph do not depend on each other; both build on DList only.
@@ -156,6 +157,10 @@ dotnet add package Triordinal.DTree   # C#, namespace DirectedTrees (DList: name
 
 To be notified of new versions on GitHub, use *Watch → Custom → Releases*.
 
+## DTree Explorer
+
+The [DTree Explorer](python/explorer/) builds a tree edge by edge in the browser and shows the encoding at work: the tree, the plane, and the lists with the positions the library stores, for DTree 3.0, DTree 2.x and EulerTree. Click nodes to see what reaches what; with DTree 3.0 the page names the step of the query that decides. Online at [dtree.digraphs.net](https://dtree.digraphs.net/); offline with `pip install triordinal-dtree-explorer` and `dtree-explorer`; or as one file, `DTree-Explorer.html`, attached to every release. It is built from this repository's DTree, so page and library always match. Up to 1.3.3 it was published as `dtree-explorer` from [DTree-Explorer](https://github.com/EnisOlgac/DTree-Explorer).
+
 ## Quick Start (Python)
 
 ```python
@@ -242,7 +247,8 @@ The author's original C# prototype (with the WPF viewer on top of it) is include
 
 ```
 Triordinal/
-├── python/         Python packages: dlist/ (triordinal-dlist), dtree/ (triordinal-dtree)
+├── python/         Python packages: dlist/ (triordinal-dlist), dtree/ (triordinal-dtree),
+│                   explorer/ (triordinal-dtree-explorer, the DTree Explorer)
 ├── csharp/         C# implementation (Triordinal.DList, Triordinal.DTree, Triordinal.DTree.Tests) and WPF viewer
 │                   (Tree.View)
 ├── examples/       sample trees (.csx: "parent: child1; child2")

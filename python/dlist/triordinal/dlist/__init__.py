@@ -479,4 +479,4 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 __all__ = ["DList", "SOURCE", "SINK", "POSITIONS"]
-__version__ = "3.0.0"
+__version__ = "3.1.0"

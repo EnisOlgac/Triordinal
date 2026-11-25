@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triordinal-dtree-explorer"
+version = "3.1.0"
+description = "DTree Explorer: encode a directed tree with DTree 3.0 (one list, the structure in the nodes), DTree 2.x (two lists) or EulerTree and watch it step by step, in the browser"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Enis Olgac", email = "enis@digraphs.info" }]
+dependencies = ["triordinal-dtree>=3.1.0,<4"]
+keywords = ["directed tree", "tree topology", "reachability", "visualization", "incremental encoding", "teaching"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Education",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+
+[project.scripts]
+dtree-explorer = "dtree_explorer.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/EnisOlgac/Triordinal"
+Source = "https://github.com/EnisOlgac/Triordinal/tree/main/python/explorer"
+Changelog = "https://github.com/EnisOlgac/Triordinal/blob/main/CHANGELOG.md"
+"Earlier versions (dtree-explorer)" = "https://github.com/EnisOlgac/DTree-Explorer"
+Online = "https://dtree.digraphs.net/"
+Paper = "https://doi.org/10.5772/intechopen.1013408"
+
+[tool.setuptools]
+packages = ["dtree_explorer"]
+
+[tool.setuptools.package-data]
+dtree_explorer = ["explorer.html"]

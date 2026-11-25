@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DTree Explorer</title>
+<meta name="description" content="Encode a directed tree with DTree's two lists Q1 and Q2, or with EulerTree's one list, step by step, in your browser.">
+<style>
+/* Layout: a peach band as on digraphs.blog, then input on the left and the pictures on the right;
+   one column on phones. One light look on purpose, matching the site. */
+:root {
+  --peach: #f8c99c;
+  --peach-deep: #e7a668;
+  --paper: #ffffff;
+  --panel: #fbf7f2;
+  --ink: #26211c;
+  --muted: #6e645a;
+  --line: #e7ddd2;
+  --accent: #b4521a;
+  --accent-soft: #fbe1cf;
+  --anc: #2d68ad;
+  --anc-soft: #e1ebf7;
+  --desc: #2b8152;
+  --desc-soft: #dff1e6;
+  --edge: #bfb2a4;
+  --font: "Segoe UI", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --mono: Consolas, "SFMono-Regular", Menlo, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--font); }
+a { color: var(--accent); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.band { background: var(--peach); }
+header.band .wrap { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; padding-block: 18px 16px; }
+header.band h1 { margin: 0; color: #fff; font-weight: 600; font-size: clamp(26px, 4vw, 36px); letter-spacing: 0.01em; text-shadow: 0 1px 0 rgba(120, 60, 10, 0.25); }
+header.band p { margin: 2px 0 0; color: #fff; font-size: 17px; text-shadow: 0 1px 0 rgba(120, 60, 10, 0.2); }
+header.band nav a { color: var(--ink); font-weight: 600; text-decoration: none; }
+header.band nav a:hover, header.band nav a:focus-visible { text-decoration: underline; }
+main.wrap { display: grid; grid-template-columns: minmax(0, 330px) minmax(0, 1fr); gap: 24px; padding-block: 22px 32px; }
+@media (max-width: 860px) { main.wrap { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+section.work { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+label.field { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+select, textarea, input[type="file"] { width: 100%; font: inherit; }
+select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); }
+textarea { font-family: var(--mono); font-size: 13px; line-height: 1.45; padding: 8px; border: 1px solid var(--line); border-radius: 4px; resize: vertical; min-height: 220px; background: var(--paper); color: var(--ink); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+button { font: inherit; border-radius: 4px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 6px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--peach-deep); }
+button:disabled { opacity: 0.55; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--anc); outline-offset: 2px; }
+.syntax { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.syntax code { font-family: var(--mono); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.errors { margin: 8px 0 0; padding-left: 18px; color: #9b2c1c; font-size: 13px; }
+.status { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
+.status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--peach-deep); margin-top: 5px; flex: none; }
+.status.ready .dot { background: var(--desc); }
+.status.error .dot { background: #b3261e; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.stepper { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; }
+.stepper input[type="range"] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.stepper button { white-space: nowrap; }
+.stepper select { padding: 5px 6px; }
+@media (max-width: 560px) {
+  .stepper { flex-wrap: wrap; }
+  .stepper input[type="range"] { order: -1; flex-basis: 100%; }   /* slider on its own row above the buttons */
+}
+.steplabel { font-size: 14px; min-height: 1.5em; }
+.steplabel b { font-family: var(--mono); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); cursor: pointer; user-select: none; }
+.chip input { accent-color: var(--accent); margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; font-size: 13px; padding: 5px 10px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.query { font-size: 14px; }
+.query .answer { font-weight: 600; }
+.query .yes { color: var(--desc); }
+.query .no { color: #9b2c1c; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; border: 1.5px solid var(--sw); background: var(--sf); }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; }
+.panel-head .note { font-size: 12px; color: var(--muted); }
+.scroll { overflow: auto; max-height: 72vh; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
+.scroll svg { display: block; }
+.lists { overflow-x: auto; }
+.qrow { display: flex; align-items: stretch; gap: 4px; margin: 4px 0 10px; width: max-content; }
+.qrow .qname { font-family: var(--mono); font-weight: 600; width: 34px; flex: none; align-self: center; }
+.qgrid .qname { width: 72px; font-size: 12px; line-height: 1.25; }
+.qgrid .qname small { display: block; font-weight: 400; font-size: 10px; color: var(--muted); }
+.cell { font-family: var(--mono); font-size: 12px; text-align: center; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; background: var(--paper); cursor: pointer; min-width: 38px; }
+.cell small { display: block; color: var(--muted); font-size: 10px; }
+.cell.new { background: var(--accent-soft); border-color: var(--accent); }
+.cell.anc { background: var(--anc-soft); border-color: var(--anc); }
+.cell.desc { background: var(--desc-soft); border-color: var(--desc); }
+.cell.sel1 { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cell.sel1 small, .cell.sel2 small { color: #fff; }
+.cell.sel2 { background: var(--ink); border-color: var(--ink); color: #fff; }
+.cell.hid { opacity: 0.4; }
+.cell.close { border-style: dashed; }
+.cell b.br { color: var(--accent); }
+.cell.sel1 b.br, .cell.sel2 b.br { color: #fff; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.qgrid .qrow { gap: 4px; margin: 2px 0 6px; }
+.qgrid .cell { width: 48px; min-width: 0; box-sizing: border-box; padding: 3px 2px; }
+.qgrid.wide .cell { width: 72px; }
+.qgrid .cell.blk { box-shadow: -3px 0 0 var(--accent); }
+.qgrid svg { display: block; }
+.stats { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+footer.band { background: var(--peach); margin-top: 8px; }
+footer.band .wrap { padding-block: 16px 22px; font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; }
+footer.band p { margin: 2px 0; }
+footer.band a { color: var(--ink); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap">
+    <div>
+      <h1>DTree Explorer</h1>
+      <p>Topology and Structure of Directed Trees, encoded in your browser</p>
+    </div>
+    <nav><a href="https://digraphs.blog/">&larr; digraphs.blog</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <aside>
+    <div class="card">
+      <h2>Tree description</h2>
+      <label class="field" for="example">Example</label>
+      <select id="example"></select>
+      <p class="syntax">Examples marked &ldquo;Paper&rdquo; are taken from E. Olgac, <a href="https://doi.org/10.5772/intechopen.1013408">&ldquo;Topology and Structure of Directed Trees: An Incremental Encoding,&rdquo; IntechOpen, 2025</a>.</p>
+      <label class="field" for="file">Or open your own file (.csx or .txt)</label>
+      <input id="file" type="file" accept=".csx,.txt,text/plain">
+      <label class="field" for="text">Edges, one line each</label>
+      <textarea id="text" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button id="encode" class="primary" type="button" disabled>Encode</button>
+        <span class="stats" id="stats"></span>
+      </div>
+      <p class="syntax"><code>p: c1; c2</code> last children of p &middot; <code>s &gt; c</code> c directly after sibling s &middot; <code>s &lt; c</code> c directly before s &middot; lines starting with <code>#</code> are comments</p>
+      <ul class="errors" id="errors" hidden></ul>
+    </div>
+    <div class="card">
+      <h2>Encoding</h2>
+      <div class="opts">
+        <div><label class="field" for="kind" style="margin-top:0">Lists</label>
+          <select id="kind"><option value="dtree">DTree 3.0 (Q1, structure in the nodes)</option><option value="dtree2">DTree 2.x (Q1, Q2)</option><option value="euler">EulerTree (Q1, closing cells)</option></select></div>
+        <div><label class="field" for="positions" style="margin-top:0">Positions</label>
+          <select id="positions"><option value="rational">rational</option><option value="integer">integer</option></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="status" id="status"><span class="dot"></span><span id="statustext">Starting&hellip;</span></div>
+    </div>
+    <div class="card">
+      <h2>How to read it</h2>
+      <div id="howto"></div>
+      <p style="margin:0 0 8px" id="howto-pos"></p>
+      <p style="margin:0;font-size:13px;color:var(--muted)">The method is described in E. Olgac, <a href="https://doi.org/10.5772/intechopen.1013408">&ldquo;Topology and Structure of Directed Trees: An Incremental Encoding&rdquo;</a>.</p>
+    </div>
+  </aside>
+
+  <section class="work">
+    <div class="card">
+      <div class="toolbar">
+        <div class="stepper">
+          <button id="prev" type="button" title="Previous edge (left arrow key)">&#9664; Previous edge</button>
+          <input id="step" type="range" min="0" max="0" value="0" aria-label="Step">
+          <button id="next" type="button" title="Next edge (right arrow key)">Next edge &#9654;</button>
+          <button id="play" type="button">Play</button>
+          <select id="speed" aria-label="Animation">
+            <option value="1600">Slow</option>
+            <option value="500" selected>Normal</option>
+            <option value="250">Fast</option>
+            <option value="0">No animation</option>
+          </select>
+        </div>
+        <div class="chips" role="group" aria-label="Views">
+          <label class="chip"><input type="checkbox" id="v-tree" checked> Tree</label>
+          <label class="chip"><input type="checkbox" id="v-plane" checked> Plane</label>
+          <label class="chip"><input type="checkbox" id="v-lists" checked> <span id="v-lists-label">Q1 / Q2</span></label>
+        </div>
+        <div class="seg" role="group" aria-label="Clicking a node">
+          <button type="button" id="m-pick" aria-pressed="true">Pick nodes</button>
+          <button type="button" id="m-collapse" aria-pressed="false">Collapse / expand</button>
+        </div>
+      </div>
+      <div class="steplabel" id="steplabel" style="margin-top:8px"></div>
+      <div class="query" id="query" style="margin-top:6px"></div>
+      <div class="legend">
+        <span style="--sw:var(--accent);--sf:var(--accent-soft)">new in this step</span>
+        <span style="--sw:var(--accent);--sf:var(--accent)">picked node</span>
+        <span style="--sw:var(--anc);--sf:var(--anc-soft)">reaches the picked node</span>
+        <span style="--sw:var(--desc);--sf:var(--desc-soft)">reached by it</span>
+      </div>
+    </div>
+
+    <div class="card" id="p-tree">
+      <div class="panel-head">
+        <h2>Tree</h2>
+        <span class="note" id="tree-note"></span>
+        <div class="row"><button type="button" data-save="tree" data-fmt="svg">Save SVG</button><button type="button" data-save="tree" data-fmt="png">Save PNG</button></div>
+      </div>
+      <div class="scroll" id="tree"></div>
+    </div>
+
+    <div class="card" id="p-plane">
+      <div class="panel-head">
+        <h2>Plane</h2>
+        <span class="note" id="plane-note"></span>
+        <div class="row"><button type="button" data-save="plane" data-fmt="svg">Save SVG</button><button type="button" data-save="plane" data-fmt="png">Save PNG</button></div>
+      </div>
+      <div class="scroll" id="plane"></div>
+    </div>
+
+    <div class="card" id="p-lists">
+      <div class="panel-head">
+        <h2 id="lists-title">Q1 and Q2</h2>
+        <span class="note" id="lists-note"></span>
+        <div class="seg" role="group" aria-label="Order of the lists">
+          <button type="button" id="l-sorted" aria-pressed="true">Sorted by Q1</button>
+          <button type="button" id="l-own" aria-pressed="false">Each in its own order</button>
+        </div>
+      </div>
+      <div class="lists" id="lists"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="band">
+  <div class="wrap">
+    <div>
+      <p><b>DTree Explorer __EXPLORER_VERSION__</b> &middot; computed by <a href="https://pypi.org/project/triordinal-dtree/">triordinal-dtree</a> (MIT) &middot; <a href="https://github.com/EnisOlgac/DTree-Explorer">source on GitHub</a> &middot; <a href="https://doi.org/10.5772/intechopen.1013408">the paper</a></p>
+      <p>Your tree never leaves your computer. Opened from a file or a website, the page loads the Python runtime from cdn.jsdelivr.net and the package from pypi.org; started with <code>dtree-explorer</code>, it uses the library installed on your machine.</p>
+    </div>
+    <div><p>Contact: Enis Olgac, enis@digraphs.info</p><p>Copyright &copy; 2026 by Ihsan Enis Olgac, B&ouml;blingen</p><p id="legal" hidden><a href="imprint.html">Imprint</a> &middot; <a id="privacy-link" href="#">Privacy</a></p></div>
+  </div>
+</footer>
+
+
+<script type="text/plain" id="src-dlist">__DLIST_SRC__</script>
+<script type="text/plain" id="src-init">__DTREE_INIT__</script>
+<script type="text/plain" id="src-dtree">__DTREE_SRC__</script>
+<script type="text/plain" id="src-euler">__DTREE_EULER__</script>
+<script type="text/plain" id="src-two-lists">__DTREE_TWO_LISTS__</script>
+<script type="text/plain" id="src-bridge">__BRIDGE_SRC__</script>
+<script>
+"use strict";
+// ---- configuration --------------------------------------------------------------------
+const CONFIG = {
+  dtreeVersion: "__DTREE_VERSION__",
+  pyodideURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
+  explorerVersion: "__EXPLORER_VERSION__",
+  counter: "__COUNTER__",                  // GoatCounter endpoint, only in the online copy (dtree.digraphs.net); empty elsewhere
+  privacyURL: "__PRIVACY_URL__",           // privacy notice of the online copy; empty elsewhere
+};
+const EXAMPLES = __EXAMPLES__;
+const DEFAULT = __DEFAULT__;
+
+// ---- small helpers --------------------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } },
+};
+const COLORS = {
+  ink: "#26211c", muted: "#6e645a", paper: "#ffffff", line: "#e7ddd2", edge: "#bfb2a4",
+  accent: "#b4521a", accentSoft: "#fbe1cf", anc: "#2d68ad", ancSoft: "#e1ebf7", desc: "#2b8152", descSoft: "#dff1e6",
+};
+const FONT = 'Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif';
+
+// ---- state ----------------------------------------------------------------------------
+const state = { data: null, step: 0, sel: [], collapsed: new Set(), mode: "pick", timer: null, example: null, lists: { dtree: "own", dtree2: "sorted", euler: "own" }, from: null };
+let backend = null;   // { encode(text, opts) -> Promise<data>, label }; opts = { kind, positions }
+const kindOf = () => state.data ? state.data.kind : "dtree";       // what the shown data is, not what is selected
+const isEuler = () => kindOf() === "euler";
+const isOne = () => kindOf() === "dtree";                             // DTree 3.0: one list, the structure in the nodes
+const listMode = () => state.lists[kindOf()];   // view 3 per encoding: DTree 2.x sorted, DTree 3.0 and EulerTree as stored
+const options = () => ({ kind: $("#kind").value, positions: $("#positions").value });
+
+// texts that depend on the encoding (DTree 3.0: one list and the structure in the nodes; DTree 2.x: two lists;
+// EulerTree: one list with closing cells) and the kind of position
+const TEXT = {
+  dtree: {
+    howto: `<p style="margin:0 0 8px"><b>DTree 3.0</b> keeps one list, <b>Q1</b>: the tree top-down with siblings in their order. The structure is kept in the nodes: each node knows its parent and its children. A node's block in Q1 runs from its own cell to just before its <b>delimiter</b>: its next sibling, or, for a last child, its parent's delimiter. A node <i>u</i> reaches <i>v</i> exactly when <i>v</i> lies inside <i>u</i>'s block. Nothing marks the end of a block; the siblings say where it is.</p>
+      <p style="margin:0 0 8px">A new node needs one list insertion, directly after its parent, before its next sibling, or before its parent's delimiter; the other positions stay as they are. View 3 shows Q1 as stored, with each node's delimiter below it. The plane uses Q2 read from the children right to left; it is not stored.</p>
+      <p style="margin:0 0 8px">Step through the build with the slider and watch it happen, edge by edge. Under <i>Encoding</i>, <i>Lists</i> switches between DTree 3.0, DTree 2.x with its two lists and EulerTree, <i>Positions</i> between rational and integer positions.</p>`,
+    plane: "each node at (its rank in Q1, its rank in Q2 read from the children right to left: not stored)",
+    title: "Q1 and the delimiters", chip: "Q1", own: "The list as stored", row2: "Q2 (read)",
+    sorted: "nodes in Q1 order with their Q2 rank read from the children right to left (not stored): it rises into a child and drops where a new block begins (marked)",
+  },
+  dtree2: {
+    howto: `<p style="margin:0 0 8px"><b>DTree 2.x</b> gives every node a position in two lists. <b>Q1</b> lists the tree top-down with siblings in their order, <b>Q2</b> with siblings reversed. A node <i>u</i> reaches <i>v</i> exactly when <i>u</i> comes before <i>v</i> in both lists.</p>
+      <p style="margin:0 0 8px">A new node needs two list insertions; the other positions stay as they are. Step through the build with the slider and watch it happen, edge by edge. Under <i>Encoding</i>, <i>Lists</i> switches between DTree 3.0, DTree 2.x with its two lists and EulerTree, <i>Positions</i> between rational and integer positions.</p>`,
+    plane: "each node at (its rank in Q1, its rank in Q2)",
+    title: "Q1 and Q2", chip: "Q1 / Q2", own: "Each in its own order", row2: "Q2",
+    sorted: "nodes in Q1 order: Q1 rises by one; Q2 rises into a child and drops where a new block begins (marked)",
+  },
+  euler: {
+    howto: `<p style="margin:0 0 8px"><b>EulerTree</b> keeps one list, <b>Q1</b>: the tree top-down with siblings in their order, and after the last node of each subtree a closing cell for its root: <b>A[</b> opens the block of A, <b>]A</b> closes it. A node's block runs from its own cell to its closing cell (a leaf's block is its own cell). A node <i>u</i> reaches <i>v</i> exactly when <i>v</i>'s cell lies inside <i>u</i>'s block.</p>
+      <p style="margin:0 0 8px">A new node needs one list insertion, two when a leaf gets its first child (its closing cell); the other positions stay as they are. Read from the right, the block ends come in DTree 2.x's Q2 order, so the plane is the same as with DTree.</p>
+      <p style="margin:0 0 8px">Step through the build with the slider and watch Q1 grow, edge by edge; read with its brackets, the list is the tree as a nested term. Under <i>Encoding</i>, <i>Lists</i> switches between DTree 3.0, DTree 2.x with its two lists and EulerTree, <i>Positions</i> between rational and integer positions.</p>`,
+    plane: "each node at (its rank in Q1, the rank of its block end from the right = its Q2 rank)",
+    title: "Q1, the Euler tour", chip: "Q1", own: "The list as stored", row2: "end",
+    sorted: "nodes in Q1 order with the rank of their block end read from the right (= Q2): it rises into a child and drops where a new block begins (marked)",
+  },
+  rational: "Positions are fractions: a new cell takes the mediant of its neighbors, and a list is renumbered only when a new position can no longer be stored.",
+  integer: "Positions are integers in [0, 2^62]: a new cell takes the midpoint of its neighbors, and a list is renumbered when two neighbors leave no room.",
+};
+
+function current() {
+  const d = state.data;
+  if (!d || !d.steps.length) return null;
+  const s = d.stepwise ? d.steps[state.step] : d.final;
+  const r1 = new Map(s.q1.map((v, i) => [v, i]));
+  const r2 = new Map(s.q2.map((v, i) => [v, i]));
+  const kids = new Map();
+  for (const v of s.q1) {
+    const p = d.parents[v];
+    if (p != null && r1.has(p)) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(v); }
+  }
+  const stepInfo = d.stepwise ? d.steps[state.step] : d.steps[d.steps.length - 1];
+  return { s, r1, r2, kids, root: s.q1[0], newNode: d.stepwise ? stepInfo.new : null, stepInfo };
+}
+const reaches = (C, u, v) => C.r1.get(u) < C.r1.get(v) && C.r2.get(u) < C.r2.get(v);
+
+function role(C, v) {
+  const [a, b] = state.sel;
+  if (v === a) return "sel1";
+  if (v === b) return "sel2";
+  if (a != null && state.sel.length === 1) {
+    if (reaches(C, v, a)) return "anc";
+    if (reaches(C, a, v)) return "desc";
+  }
+  if (v === C.newNode) return "new";
+  return "";
+}
+const STYLE = {
+  "": { fill: COLORS.paper, stroke: COLORS.ink, text: COLORS.ink, w: 1.2 },
+  new: { fill: COLORS.accentSoft, stroke: COLORS.accent, text: COLORS.ink, w: 2.2 },
+  anc: { fill: COLORS.ancSoft, stroke: COLORS.anc, text: COLORS.ink, w: 2 },
+  desc: { fill: COLORS.descSoft, stroke: COLORS.desc, text: COLORS.ink, w: 2 },
+  sel1: { fill: COLORS.accent, stroke: COLORS.accent, text: "#ffffff", w: 2 },
+  sel2: { fill: COLORS.ink, stroke: COLORS.ink, text: "#ffffff", w: 2 },
+};
+
+// visible nodes (not inside a collapsed subtree) and hidden counts
+function visibility(C) {
+  const visible = new Set(), hiddenCount = new Map();
+  const stack = [C.root];
+  while (stack.length) {
+    const v = stack.pop();
+    visible.add(v);
+    const ks = C.kids.get(v) || [];
+    if (state.collapsed.has(v)) {
+      let n = 0; const st = [...ks];
+      while (st.length) { const w = st.pop(); n++; st.push(...(C.kids.get(w) || [])); }
+      hiddenCount.set(v, n);
+    } else {
+      for (let i = ks.length - 1; i >= 0; i--) stack.push(ks[i]);
+    }
+  }
+  return { visible, hiddenCount };
+}
+
+// ---- tree picture ---------------------------------------------------------------------
+function labelWidth(v) { return Math.max(30, 8 * String(v).length + 14); }
+
+function treeSVG(C) {
+  const { visible, hiddenCount } = visibility(C);
+  const maxW = Math.max(...[...visible].map(labelWidth));
+  const colW = maxW + 10, rowH = 58, pad = 24;
+  const pos = new Map();
+  let slot = 0, depthMax = 0;
+  // iterative post-order: leaves get consecutive slots in Q1 order, parents sit centered
+  const stack = [[C.root, 0, false]];
+  while (stack.length) {
+    const [v, depth, done] = stack.pop();
+    depthMax = Math.max(depthMax, depth);
+    const ks = state.collapsed.has(v) ? [] : (C.kids.get(v) || []);
+    if (!ks.length) { pos.set(v, { x: slot++, y: depth }); continue; }
+    if (done) { pos.set(v, { x: (pos.get(ks[0]).x + pos.get(ks[ks.length - 1]).x) / 2, y: depth }); continue; }
+    stack.push([v, depth, true]);
+    for (let i = ks.length - 1; i >= 0; i--) stack.push([ks[i], depth + 1, false]);
+  }
+  const W = Math.max(slot * colW + 2 * pad, 260), H = (depthMax + 1) * rowH + 2 * pad - 20;
+  const X = (v) => pad + pos.get(v).x * colW + colW / 2, Y = (v) => pad + pos.get(v).y * rowH + 14;
+  let edges = "", nodes = "";
+  for (const v of visible) {
+    if (state.collapsed.has(v)) continue;
+    for (const k of C.kids.get(v) || []) edges += `<line x1="${X(v)}" y1="${Y(v) + 13}" x2="${X(k)}" y2="${Y(k) - 13}" stroke="${COLORS.edge}" stroke-width="1.4"/>`;
+  }
+  for (const v of visible) {
+    const st = STYLE[role(C, v)], w = labelWidth(v), x = X(v), y = Y(v);
+    const coll = state.collapsed.has(v);
+    nodes += `<g data-node="${esc(v)}" style="cursor:pointer"><title>${esc(v)}${coll ? ` (collapsed, ${hiddenCount.get(v)} hidden)` : ""}</title>`;
+    if (coll) nodes += `<rect x="${x - w / 2 - 4}" y="${y - 17}" width="${w + 8}" height="34" rx="10" fill="none" stroke="${st.stroke}" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+    nodes += `<rect x="${x - w / 2}" y="${y - 13}" width="${w}" height="26" rx="7" fill="${st.fill}" stroke="${st.stroke}" stroke-width="${st.w}"/>`;
+    nodes += `<text x="${x}" y="${y + 4.5}" text-anchor="middle" font-family="${FONT}" font-size="13" fill="${st.text}">${esc(v)}</text>`;
+    if (coll) nodes += `<text x="${x}" y="${y + 30}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${COLORS.muted}">+${hiddenCount.get(v)}</text>`;
+    nodes += `</g>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tree drawing"><rect width="100%" height="100%" fill="${COLORS.paper}"/>${edges}${nodes}</svg>`;
+}
+
+// ---- plane picture --------------------------------------------------------------------
+function planeSVG(C) {
+  const n = C.s.q1.length;
+  const cell = Math.max(14, Math.min(40, Math.floor(620 / Math.max(n, 1))));
+  const labels = cell >= 18;
+  const L = 64, B = 22, T = 52, R = 30;   // the Q1 axis is labeled at the top
+  const W = L + n * cell + R, H = T + n * cell + B;
+  const X = (i) => L + i * cell + cell / 2, Y = (j) => T + j * cell + cell / 2;   // Q2 rank grows downward
+  const { visible } = visibility(C);
+  let g = `<rect width="100%" height="100%" fill="${COLORS.paper}"/>`;
+  g += `<rect x="${L}" y="${T}" width="${n * cell}" height="${n * cell}" fill="none" stroke="${COLORS.line}"/>`;
+  const every = Math.max(1, Math.ceil(28 / cell));
+  for (let i = 0; i < n; i += every) {
+    g += `<line x1="${X(i)}" y1="${T}" x2="${X(i)}" y2="${T + n * cell}" stroke="${COLORS.line}" stroke-width="0.6"/>`;
+    g += `<line x1="${L}" y1="${Y(i)}" x2="${L + n * cell}" y2="${Y(i)}" stroke="${COLORS.line}" stroke-width="0.6"/>`;
+    g += `<text x="${X(i)}" y="${T - 8}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="${COLORS.muted}">${i + 1}</text>`;
+    g += `<text x="${L - 8}" y="${Y(i) + 3.5}" text-anchor="end" font-family="${FONT}" font-size="10" fill="${COLORS.muted}">${i + 1}</text>`;
+  }
+  g += `<text x="${L + (n * cell) / 2}" y="18" text-anchor="middle" font-family="${FONT}" font-size="12" fill="${COLORS.ink}">rank in Q1 &#8594;</text>`;
+  const yName = isEuler() ? "rank of the block end, from the right (= Q2)" : isOne() ? "rank in Q2, read from the children (not stored)" : "rank in Q2";
+  g += `<text transform="translate(16 ${T + (n * cell) / 2}) rotate(90)" text-anchor="middle" font-family="${FONT}" font-size="12" fill="${COLORS.ink}">${yName} &#8594;</text>`;   // turned clockwise: reads downward, the arrow points down
+  const a = state.sel[0];
+  if (a != null && C.r1.has(a)) {
+    const ax = X(C.r1.get(a)), ay = Y(C.r2.get(a));
+    g += `<rect x="${L}" y="${T}" width="${ax - L}" height="${ay - T}" fill="${COLORS.ancSoft}" opacity="0.6"/>`;
+    g += `<rect x="${ax}" y="${ay}" width="${L + n * cell - ax}" height="${T + n * cell - ay}" fill="${COLORS.descSoft}" opacity="0.6"/>`;
+    g += `<line x1="${ax}" y1="${T}" x2="${ax}" y2="${T + n * cell}" stroke="${COLORS.accent}" stroke-dasharray="4 3"/>`;
+    g += `<line x1="${L}" y1="${ay}" x2="${L + n * cell}" y2="${ay}" stroke="${COLORS.accent}" stroke-dasharray="4 3"/>`;
+    // quadrant names next to the picked node: upper left reach it, lower right are reached by it
+    const q = (x, y, anchor, color, text) => `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${FONT}" font-size="11" fill="${color}" stroke="${COLORS.paper}" stroke-width="3" paint-order="stroke">${text}</text>`;
+    g += q(ax - 8, ay - 11, "end", COLORS.anc, "reach it");
+    g += q(ax + 8, ay + 19, "start", COLORS.desc, "reached by it");
+    g += q(ax - 8, ay + 19, "end", COLORS.muted, "before it");
+    g += q(ax + 8, ay - 11, "start", COLORS.muted, "after it");
+  }
+  for (const v of C.s.q1) {
+    const st = STYLE[role(C, v)], x = X(C.r1.get(v)), y = Y(C.r2.get(v));
+    const r = Math.max(4, Math.min(8, cell / 3));
+    const op = visible.has(v) ? 1 : 0.35;
+    g += `<g data-node="${esc(v)}" style="cursor:pointer" opacity="${op}"><title>${esc(v)}: Q1 rank ${C.r1.get(v) + 1}, ${isEuler() ? "end rank (= Q2)" : isOne() ? "Q2 rank (read)" : "Q2 rank"} ${C.r2.get(v) + 1}</title>`;
+    g += `<circle cx="${x}" cy="${y}" r="${r + 4}" fill="transparent"/>`;
+    g += `<circle cx="${x}" cy="${y}" r="${r}" fill="${st.fill === COLORS.paper ? COLORS.ink : st.fill}" stroke="${st.stroke}" stroke-width="${st.w}"/>`;
+    if (labels) g += `<text x="${x + r + 4}" y="${y + 4}" font-family="${FONT}" font-size="11" fill="${COLORS.ink}" stroke="${COLORS.paper}" stroke-width="3" paint-order="stroke">${esc(v)}</text>`;
+    g += `</g>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Plane: rank in Q1 against ${yName}">${g}</svg>`;
+}
+
+// ---- lists ----------------------------------------------------------------------------
+// "Sorted by Q1": one column per node in Q1 order. Q1 rises by one from column to column;
+// Q2 rises from a node to the next exactly when the next is its child, and drops where a
+// new block begins (marked). The line joins the plane's points in Q1 order.
+const HEAD = 76;   // row name (72 px in the sorted grid) + gap
+// integer positions run to 19 digits: the grid shows five significant ones (the cell's title has all)
+const shortPos = (p) => p.length > 7 && /^\d+$/.test(p) ? `${p[0]}.${p.slice(1, 5)}e${p.length - 1}` : p;
+function listsHTML(C) {
+  const { visible } = visibility(C);
+  const cls = (v) => [role(C, v), visible.has(v) ? "" : "hid"].join(" ").trim();
+  if (listMode() === "own" && isEuler()) {     // the one list, bracketed: "A[" opens A's block, "]A" closes it; a closing cell picks its node
+    const d = state.data, prev = d.stepwise && state.step > 0 ? d.steps[state.step - 1] : null;
+    const par = C.newNode != null ? d.parents[C.newNode] : null;
+    // the parent's closing cell is new in this step when the parent was a leaf before it
+    const newClose = par != null && (!prev || prev.open[par] == null || prev.end[par] === prev.open[par]);
+    const cells = C.s.cells.map(([name, p], i) => {
+      const open = C.s.open[name] === i, v = open ? name : name.slice(1);
+      const inner = C.s.end[v] !== C.s.open[v];
+      const label = open ? esc(v) + (inner ? '<b class="br">[</b>' : "") : '<b class="br">]</b>' + esc(v);
+      const t = open ? `${esc(v)} at position ${esc(p)}${inner ? `; its block ends at place ${C.s.end[v] + 1}` : ""}` : `end of ${esc(v)}'s block at position ${esc(p)}`;
+      const c = !open && v === par && newClose && !state.sel.length ? "new" : cls(v);
+      return `<span class="cell ${c}${open ? "" : " close"}" data-node="${esc(v)}" title="${t}">${label}<small>${esc(p)}</small></span>`;
+    });
+    return `<div class="qrow"><span class="qname">Q1</span>${cells.join("")}</div>`;
+  }
+  if (listMode() === "own" && isOne()) {       // the one list as stored, each node's delimiter below it
+    const dl = (v) => C.s.delim[v] === "]" ? "]" : C.s.delim[v];
+    const run = (v) => C.s.run && C.s.run[v] !== v ? `; in the vertical run topped by ${esc(C.s.run[v])}` : "";
+    const top = C.s.cells.map(([v, p]) => `<span class="cell ${cls(v)}" data-node="${esc(v)}" title="${esc(v)} at position ${esc(p)}; its block ends before ${esc(dl(v))}${run(v)}">${esc(v)}<small>${esc(shortPos(p))}</small></span>`);
+    const bottom = C.s.cells.map(([v]) => `<span class="cell ${cls(v)} close" data-node="${esc(v)}" title="${esc(v)}'s block ends before ${esc(dl(v))} (${C.s.delim[v] === "]" ? "the end of the list" : d3why(C, v)})">&#8594;${esc(dl(v))}<small>&nbsp;</small></span>`);
+    return `<div class="qrow"><span class="qname">Q1</span>${top.join("")}</div><div class="qrow"><span class="qname" title="the cell before which the block ends">ends</span>${bottom.join("")}</div>`;
+  }
+  if (listMode() === "own") {
+    const row = (name, list, k) => `<div class="qrow"><span class="qname">${name}</span>` +
+      list.map((v) => `<span class="cell ${cls(v)}" data-node="${esc(v)}" title="${esc(v)} at position ${esc(C.s.pos[v][k])}">${esc(v)}<small>${esc(C.s.pos[v][k])}</small></span>`).join("") + `</div>`;
+    return row("Q1", C.s.q1, 0) + row("Q2", C.s.q2, 1);
+  }
+  const q1 = C.s.q1, n = q1.length;
+  const wide = state.data.positions === "integer", COL = wide ? 76 : 52;   // column pitch: cell + 4 px gap
+  const drop = (i) => i > 0 && C.r2.get(q1[i]) < C.r2.get(q1[i - 1]);
+  const r2 = TEXT[kindOf()].row2;
+  const title = (v) => isOne()
+    ? `${esc(v)}: Q1 rank ${C.r1.get(v) + 1}, Q2 rank ${C.r2.get(v) + 1} read from the children (not stored); position ${esc(C.s.pos[v][0])}; its block ends before ${esc(C.s.delim[v])}`
+    : isEuler()
+    ? `${esc(v)}: Q1 rank ${C.r1.get(v) + 1}, block end rank ${C.r2.get(v) + 1} from the right (= Q2); positions ${esc(C.s.pos[v][0])} (own cell) and ${esc(C.s.pos[v][1])} (block end)`
+    : `${esc(v)}: Q1 rank ${C.r1.get(v) + 1}, Q2 rank ${C.r2.get(v) + 1}; positions ${esc(C.s.pos[v][0])} and ${esc(C.s.pos[v][1])}`;
+  const cell = (v, i, k) => {
+    const top = k == null ? esc(v) : String((k === 0 ? C.r1.get(v) : C.r2.get(v)) + 1);
+    const sub = k == null ? "&nbsp;" : isOne() && k === 1 ? "&#8594;" + esc(C.s.delim[v]) : esc(shortPos(C.s.pos[v][k]));
+    return `<span class="cell ${cls(v)}${drop(i) ? " blk" : ""}" data-node="${esc(v)}" title="${title(v)}">${top}<small>${sub}</small></span>`;
+  };
+  const row = (name, k) => `<div class="qrow"><span class="qname">${name}</span>` + q1.map((v, i) => cell(v, i, k)).join("") + `</div>`;
+  const H = 64, x = (i) => HEAD + i * COL + (COL - 4) / 2;
+  const y = (v) => 8 + (n > 1 ? C.r2.get(v) / (n - 1) : 0) * (H - 16);
+  let svg = `<svg width="${HEAD + n * COL}" height="${H}" role="img" aria-label="${r2} rank of each node, in Q1 order">`;
+  for (let i = 1; i < n; i++) {
+    const d = drop(i);
+    svg += `<line x1="${x(i - 1)}" y1="${y(q1[i - 1])}" x2="${x(i)}" y2="${y(q1[i])}" stroke="${d ? COLORS.accent : COLORS.ink}" stroke-width="1.5"${d ? ' stroke-dasharray="4 3"' : ""}/>`;
+  }
+  q1.forEach((v, i) => { svg += `<g data-node="${esc(v)}" style="cursor:pointer"><circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${drop(i) ? COLORS.accent : COLORS.ink}"/></g>`; });
+  svg += `<text x="0" y="12" font-size="11" fill="${COLORS.muted}" font-family="${FONT}">${r2}</text>`;
+  svg += `<text x="0" y="${H - 4}" font-size="10" fill="${COLORS.muted}" font-family="${FONT}">rank &#8595;</text></svg>`;
+  // the large number is the rank, which shifts with every insertion; the small one the stored position, which does not
+  const sub2 = isOne() ? "ends before" : "position";
+  return `<div class="qgrid${wide ? " wide" : ""}">${row("", null)}${row("Q1 rank<small>position</small>", 0)}${row(`${r2} rank<small>${sub2}</small>`, 1)}${svg}</div>`;
+}
+
+// ---- DTree 3.0: where a block ends, and which step of the query decides -----------------
+function d3why(C, v) {
+  const p = state.data.parents[v], kids = p != null ? C.kids.get(p) || [] : [];
+  if (p == null) return "the root: its block is the whole list";
+  return kids[kids.length - 1] !== v ? "its next sibling" : `it is ${esc(p)}'s last child: ${esc(p)}'s delimiter`;
+}
+function d3step(C, a, b) {
+  const o = C.s.open[a], p = C.s.open[b], kids = C.kids.get(a) || [];
+  if (!(o < p)) return [false, `1: ${esc(b)} is not after ${esc(a)} in Q1`];
+  if (!kids.length) return [false, `2: ${esc(a)} has no children`];
+  const par = state.data.parents[a], sibs = par != null ? C.kids.get(par) || [] : [];
+  const inside = p <= C.s.end[a];
+  if (par == null) return [true, `3: ${esc(a)} is the root, its block is the whole list`];
+  if (sibs[sibs.length - 1] !== a) return [inside, `3: ${esc(a)}'s next sibling ${esc(C.s.delim[a])} ends its block`];
+  const last = kids[kids.length - 1];
+  if (p <= C.s.open[last]) return [true, `4: ${esc(b)} lies up to ${esc(a)}'s last child ${esc(last)}`];
+  if (!(C.kids.get(last) || []).length) return [inside, `4: ${esc(a)}'s last child ${esc(last)} is a leaf; the cell after it, ${esc(C.s.delim[a])}, ends ${esc(a)}'s block`];
+  return [inside, `5: the delimiter is looked for, up through the last children: ${esc(C.s.delim[a])}`];
+}
+
+// ---- query panel ----------------------------------------------------------------------
+function queryHTML(C) {
+  const [a, b] = state.sel;
+  if (a == null) {
+    return state.mode === "pick"
+      ? "Pick a node to see which nodes reach it and which it reaches. Pick a second node to ask whether the first reaches it."
+      : "Click a node with children to collapse it; click it again to expand it.";
+  }
+  const nm = (v) => `<b>${esc(v)}</b>`;
+  if (b == null) {
+    let anc = 0, desc = 0;
+    for (const v of C.s.q1) { if (v !== a) { if (reaches(C, v, a)) anc++; else if (reaches(C, a, v)) desc++; } }
+    if (isOne()) {
+      const o = C.s.open[a] + 1, e = C.s.end[a] + 1;
+      const blk = o === e ? `Its block is its own cell (place ${o} of Q1).` : `Its block runs from place ${o} to place ${e} of Q1 and ends before ${esc(C.s.delim[a])} (${d3why(C, a)}).`;
+      return `${nm(a)}: reached by ${anc} node${anc === 1 ? "" : "s"}, reaches ${desc}. ${blk} In the plane, the nodes that reach it lie upper left, the nodes it reaches lower right.`;
+    }
+    if (isEuler()) {
+      const o = C.s.open[a] + 1, e = C.s.end[a] + 1;
+      const blk = o === e ? `Its block is its own cell (place ${o} of the list): a leaf.` : `Its block runs from place ${o} to place ${e} of the list; the nodes it reaches lie inside.`;
+      return `${nm(a)}: reached by ${anc} node${anc === 1 ? "" : "s"}, reaches ${desc}. ${blk} In the plane, the nodes that reach it lie upper left, the nodes it reaches lower right.`;
+    }
+    return `${nm(a)}: reached by ${anc} node${anc === 1 ? "" : "s"}, reaches ${desc}. Q1 rank ${C.r1.get(a) + 1}, Q2 rank ${C.r2.get(a) + 1}. In the plane, the nodes that reach it lie upper left, the nodes it reaches lower right.`;
+  }
+  if (isOne()) {
+    const [yes, why] = d3step(C, a, b);
+    return `Does ${nm(a)} reach ${nm(b)}? <span class="answer ${yes ? "yes" : "no"}">${yes ? "Yes" : "No"}</span> &middot; decided by step ${why}`;
+  }
+  if (isEuler()) {
+    const o = C.s.open[a], e = C.s.end[a], p = C.s.open[b];
+    const yes = o < p && p < e;
+    return `Does ${nm(a)} reach ${nm(b)}? <span class="answer ${yes ? "yes" : "no"}">${yes ? "Yes" : "No"}</span> &middot; ${nm(a)}'s block: places ${o + 1} to ${e + 1} of the list &middot; ${nm(b)} at place ${p + 1} ${yes ? "(inside &#10003;)" : "(outside &#10007;)"}`;
+  }
+  const i1 = C.r1.get(a), j1 = C.r1.get(b), i2 = C.r2.get(a), j2 = C.r2.get(b);
+  const yes = i1 < j1 && i2 < j2;
+  const cmp = (q, i, j) => `${q}: ${nm(a)} at rank ${i + 1}, ${nm(b)} at rank ${j + 1} ${i < j ? "(before &#10003;)" : "(after &#10007;)"}`;
+  return `Does ${nm(a)} reach ${nm(b)}? <span class="answer ${yes ? "yes" : "no"}">${yes ? "Yes" : "No"}</span> &middot; ${cmp("Q1", i1, j1)} &middot; ${cmp("Q2", i2, j2)}`;
+}
+
+// ---- animation: one edge step glides from the old picture to the new one ---------------
+// Every element with data-node is measured before and after the views are redrawn and moved
+// from its old place to its new one; the new node starts at its parent. Lines fade in.
+const VIEWS = ["#tree", "#plane", "#lists"];
+function snapshot() {
+  const m = new Map();
+  for (const id of VIEWS) {
+    const seen = new Map();
+    for (const el of $(id).querySelectorAll("[data-node]")) {
+      const v = el.getAttribute("data-node"), k = seen.get(v) || 0;
+      seen.set(v, k + 1);
+      const r = el.getBoundingClientRect();
+      m.set(`${id}|${v}|${k}`, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    }
+  }
+  return m;
+}
+function animateFrom(before, C) {
+  const ms = Number($("#speed").value);
+  if (!before || !ms) return;
+  const parent = C.newNode != null ? state.data.parents[C.newNode] : null;
+  const ease = "cubic-bezier(.2,.7,.2,1)";
+  for (const id of VIEWS) {
+    const seen = new Map();
+    for (const el of $(id).querySelectorAll("[data-node]")) {
+      const v = el.getAttribute("data-node"), k = seen.get(v) || 0;
+      seen.set(v, k + 1);
+      const r = el.getBoundingClientRect(), now = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      const old = before.get(`${id}|${v}|${k}`) || (v === C.newNode && parent != null ? before.get(`${id}|${parent}|${k}`) || before.get(`${id}|${parent}|0`) : null);
+      const svg = el.ownerSVGElement, f = svg ? svg.getScreenCTM().a || 1 : 1;   // client px -> SVG units
+      const fresh = !before.has(`${id}|${v}|${k}`);
+      if (!old) { if (fresh) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms, easing: ease }); continue; }
+      const dx = (old.x - now.x) / f, dy = (old.y - now.y) / f;
+      if (!fresh && Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      const frames = [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0px, 0px)" }];
+      if (fresh) { frames[0].opacity = 0; frames[1].opacity = 1; }
+      el.animate(frames, { duration: ms, easing: ease });
+    }
+    for (const ln of $(id).querySelectorAll("svg line, svg polyline")) {
+      ln.animate([{ opacity: 0 }, { opacity: 0, offset: 0.55 }, { opacity: 1 }], { duration: ms, easing: "linear" });
+    }
+  }
+}
+
+// ---- rendering ------------------------------------------------------------------------
+function render() {
+  const animate = state.from != null && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  state.from = null;
+  const before = animate ? snapshot() : null;
+  const d = state.data;
+  const C = current();
+  const total = d ? d.steps.length : 0;
+  const tk = TEXT[d ? d.kind : "dtree"];
+  $("#howto").innerHTML = tk.howto;
+  $("#howto-pos").textContent = TEXT[d && d.positions === "integer" ? "integer" : "rational"];
+  $("#plane-note").textContent = tk.plane;
+  $("#lists-title").textContent = tk.title;
+  $("#v-lists-label").textContent = tk.chip;
+  $("#l-own").textContent = tk.own;
+  $("#l-sorted").setAttribute("aria-pressed", String(listMode() === "sorted"));
+  $("#l-own").setAttribute("aria-pressed", String(listMode() === "own"));
+  const slider = $("#step");
+  slider.max = Math.max(0, total - 1);
+  slider.value = state.step;
+  slider.disabled = !d || !d.stepwise || total < 2;
+  $("#prev").disabled = slider.disabled || state.step === 0;
+  $("#next").disabled = slider.disabled || state.step >= total - 1;
+  $("#play").disabled = slider.disabled;
+  if (!C) {
+    $("#steplabel").textContent = "No tree yet: enter at least one edge, e.g. A: B";
+    for (const id of ["#tree", "#plane", "#lists"]) $(id).innerHTML = "";
+    $("#query").textContent = "";
+    return;
+  }
+  const si = C.stepInfo;
+  $("#steplabel").innerHTML = d.stepwise
+    ? `Edge ${state.step + 1} of ${total}: <b>${edgeText(si.op)}</b> <span style="color:var(--muted)">(line ${si.line})</span> &middot; ${C.s.q1.length} nodes`
+    : `Final tree: ${C.s.q1.length} nodes. Step by step is available up to ${d.limit} insertions.`;
+  $("#stats").textContent = isEuler() || isOne()
+    ? `${d.final.q1.length} nodes · ${d.positions} positions · renumberings Q1: ${d.renumber[0]}`
+    : `${d.final.q1.length} nodes · ${d.positions} positions · renumberings Q1 / Q2: ${d.renumber[0]} / ${d.renumber[1]}`;
+  if ($("#v-tree").checked) $("#tree").innerHTML = treeSVG(C);
+  if ($("#v-plane").checked) $("#plane").innerHTML = planeSVG(C);
+  if ($("#v-lists").checked) $("#lists").innerHTML = listsHTML(C);
+  const tx = TEXT[d.kind];
+  const stored = d.positions === "integer" ? "integers; a new cell takes the midpoint of its neighbors" : "fractions; a new cell takes the mediant of its neighbors";
+  $("#lists-note").textContent = listMode() === "sorted" ? `${tx.sorted}. Ranks are for reading only: reachability compares the stored positions below them, which an insertion leaves unchanged`
+    : d.kind === "euler" ? `the one list as the library stores it: A[ opens the block of A, ]A closes it (${stored})`
+    : d.kind === "dtree" ? `Q1 as the library stores it (${stored}); below each node the cell before which its block ends: its next sibling, or its parent's delimiter (] is the end of the list)`
+    : `positions as the library stores them (${stored})`;
+  $("#p-tree").hidden = !$("#v-tree").checked;
+  $("#p-plane").hidden = !$("#v-plane").checked;
+  $("#p-lists").hidden = !$("#v-lists").checked;
+  $("#tree-note").textContent = state.collapsed.size ? `${state.collapsed.size} collapsed` : "children in Q1 order";
+  $("#query").innerHTML = queryHTML(C);
+  if (before) animateFrom(before, C);
+}
+
+// "p:c" -> "p → c", "s>c" -> "c after s", "s<c" -> "c before s"
+function edgeText(op) {
+  const at = op.search(/[:<>]/);
+  const a = esc(op.slice(0, at)), b = esc(op.slice(at + 1)), k = op[at];
+  if (k === ":") return `${a} &rarr; ${b}`;
+  return `${b} ${k === ">" ? "after" : "before"} ${a}`;
+}
+
+function setData(data) {
+  stopPlay();
+  state.data = data;
+  state.step = data.stepwise ? Math.max(0, data.steps.length - 1) : 0;
+  state.sel = [];
+  state.collapsed.clear();
+  const errs = $("#errors");
+  errs.innerHTML = data.errors.map((e) => `<li>Line ${e.line}: ${esc(e.msg)}</li>`).join("");
+  errs.hidden = !data.errors.length;
+  render();
+}
+
+function pruneToStep() {
+  const C = current();
+  if (!C) return;
+  state.sel = state.sel.filter((v) => C.r1.has(v));
+  for (const v of [...state.collapsed]) if (!C.r1.has(v)) state.collapsed.delete(v);
+}
+
+function goStep(k) {
+  const d = state.data;
+  if (!d || !d.stepwise) return;
+  const next = Math.max(0, Math.min(d.steps.length - 1, k));
+  if (Math.abs(next - state.step) === 1) state.from = state.step;
+  state.step = next;
+  pruneToStep();
+  render();
+}
+
+function stopPlay() {
+  if (state.timer) { clearInterval(state.timer); state.timer = null; $("#play").textContent = "Play"; }
+}
+
+// ---- events ---------------------------------------------------------------------------
+function onNodeClick(v) {
+  const C = current();
+  if (!C || !C.r1.has(v)) return;
+  if (state.mode === "pick") {
+    if (!state.sel.length || state.sel.length === 2) state.sel = [v];
+    else if (state.sel[0] === v) state.sel = [];
+    else { state.sel = [state.sel[0], v]; track("node_query"); }
+  } else {
+    if (!(C.kids.get(v) || []).length) return;
+    if (state.collapsed.has(v)) state.collapsed.delete(v); else { state.collapsed.add(v); track("collapse"); }
+  }
+  render();
+}
+
+function wire() {
+  const sel = $("#example");
+  sel.innerHTML = Object.keys(EXAMPLES).map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("");
+  sel.value = DEFAULT.example;
+  sel.addEventListener("change", () => {
+    state.example = sel.value;
+    $("#text").value = EXAMPLES[sel.value];
+    track("example_loaded", { example: sel.value });
+    runEncode();
+  });
+  $("#file").addEventListener("change", (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { $("#text").value = String(reader.result); state.example = null; track("own_file"); runEncode(); };
+    reader.readAsText(f);
+  });
+  $("#encode").addEventListener("click", () => {
+    if (state.example && $("#text").value !== EXAMPLES[state.example]) state.example = null;   // edited: no longer the example
+    track("encode_text");
+    runEncode();
+  });
+  for (const id of ["kind", "positions"]) {
+    const el = $("#" + id), saved = store.get("dtree-" + id);
+    if (saved && [...el.options].some((o) => o.value === saved)) el.value = saved;
+    el.addEventListener("change", () => {
+      store.set("dtree-" + id, el.value);
+      track("encoding", options());
+      runEncode();
+    });
+  }
+  $("#text").addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") runEncode(); });
+  $("#step").addEventListener("input", (ev) => { stopPlay(); goStep(+ev.target.value); });
+  document.addEventListener("keydown", (ev) => {      // arrow keys step edge by edge, except while typing
+    if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.target.closest("textarea, input:not([type=range]), select")) return;
+    if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+      if (ev.target.id === "step") return;              // the slider handles its own arrow keys
+      ev.preventDefault();
+      stopPlay();
+      goStep(state.step + (ev.key === "ArrowRight" ? 1 : -1));
+    }
+  });
+  $("#prev").addEventListener("click", () => { stopPlay(); goStep(state.step - 1); });
+  $("#next").addEventListener("click", () => { stopPlay(); goStep(state.step + 1); });
+  $("#play").addEventListener("click", () => {
+    if (state.timer) { stopPlay(); return; }
+    const d = state.data;
+    if (state.step >= d.steps.length - 1) goStep(0);
+    $("#play").textContent = "Pause";
+    state.timer = setInterval(() => {
+      if (state.step >= state.data.steps.length - 1) { stopPlay(); return; }
+      goStep(state.step + 1);
+    }, Math.max(800, Number($("#speed").value) + 350));
+  });
+  for (const id of ["#v-tree", "#v-plane", "#v-lists"]) $(id).addEventListener("change", render);
+  try { const sp = localStorage.getItem("dtree-speed"); if (sp != null) $("#speed").value = sp; } catch (e) { /* no storage */ }
+  $("#speed").addEventListener("change", () => {
+    try { localStorage.setItem("dtree-speed", $("#speed").value); } catch (e) { /* no storage */ }
+    if (state.timer) { stopPlay(); $("#play").click(); }   // restart Play at the new pace
+  });
+  const setMode = (m) => {
+    state.mode = m;
+    $("#m-pick").setAttribute("aria-pressed", String(m === "pick"));
+    $("#m-collapse").setAttribute("aria-pressed", String(m === "collapse"));
+    render();
+  };
+  $("#m-pick").addEventListener("click", () => setMode("pick"));
+  $("#m-collapse").addEventListener("click", () => setMode("collapse"));
+  const setLists = (m) => {
+    state.lists[kindOf()] = m;
+    render();
+  };
+  $("#l-sorted").addEventListener("click", () => setLists("sorted"));
+  $("#l-own").addEventListener("click", () => setLists("own"));
+  document.addEventListener("click", (ev) => {
+    const el = ev.target.closest("[data-node]");
+    if (el) onNodeClick(el.getAttribute("data-node"));
+  });
+  document.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", () => save(b.dataset.save, b.dataset.fmt)));
+}
+
+// ---- saving pictures ------------------------------------------------------------------
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function save(which, fmt) {
+  const svg = document.querySelector(`#${which} svg`);
+  if (!svg) return;
+  const text = '<?xml version="1.0" encoding="UTF-8"?>\n' + svg.outerHTML;
+  const name = `dtree-${which}${state.example ? "-" + state.example.replace(/\W+/g, "_") : ""}`;
+  track("save_picture", { picture: which, format: fmt });
+  if (fmt === "svg") { download(new Blob([text], { type: "image/svg+xml" }), name + ".svg"); return; }
+  const w = +svg.getAttribute("width"), h = +svg.getAttribute("height"), scale = 2;
+  const img = new Image();
+  const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = w * scale; c.height = h * scale;
+    const ctx = c.getContext("2d");
+    ctx.scale(scale, scale); ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    c.toBlob((b) => b && download(b, name + ".png"), "image/png");
+  };
+  img.src = url;
+}
+
+// ---- computing: Pyodide with the published package -------------------------------------
+function setStatus(kind, text) {
+  const s = $("#status");
+  s.className = "status " + (kind || "");
+  $("#statustext").innerHTML = text;
+}
+
+// the default example, computed in advance for every encoding and kind of position
+const precomputed = () => $("#text").value === EXAMPLES[DEFAULT.example] ? DEFAULT.data[`${$("#kind").value} ${$("#positions").value}`] : null;
+
+async function runEncode() {
+  if (!backend && precomputed()) { setData(precomputed()); return; }
+  if (!backend) { setStatus("", "The Python runtime is still loading; the tree is computed as soon as it is ready."); return; }
+  try {
+    const data = await backend.encode($("#text").value, options());
+    setData(data);
+  } catch (e) {
+    setStatus("error", "Could not encode: " + esc(e.message || e));
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error("could not load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+// started with the dtree-explorer command: a local server computes with the installed library
+async function startLocal() {
+  if (!/^https?:$/.test(location.protocol) || !["127.0.0.1", "localhost"].includes(location.hostname)) return null;
+  try {
+    const r = await fetch("api/info", { cache: "no-store" });
+    if (!r.ok) return null;
+    const info = await r.json();
+    return {
+      label: `triordinal-dtree ${info.dtree} (installed) on Python ${info.python}, local`,
+      local: true,
+      encode: async (text, opts) => {
+        const q = new URLSearchParams(opts).toString();
+        const res = await fetch("api/encode?" + q, { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: text });
+        if (!res.ok) throw new Error("local server answered " + res.status);
+        return res.json();
+      },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function startPyodide() {
+  setStatus("", "Loading the Python runtime (Pyodide)&hellip; The example on the right was computed in advance.");
+  await loadScript(CONFIG.pyodideURL + "pyodide.js");
+  const py = await loadPyodide({ indexURL: CONFIG.pyodideURL });
+  let source = "from PyPI";
+  try {
+    setStatus("", "Installing triordinal-dtree " + CONFIG.dtreeVersion + " from PyPI&hellip;");
+    await py.loadPackage("micropip");
+    await py.runPythonAsync(`import micropip\nawait micropip.install("triordinal-dtree==${CONFIG.dtreeVersion}")`);
+  } catch (e) {
+    source = "built-in copy";          // PyPI unreachable: the identical source shipped with this page
+    py.FS.mkdirTree("/home/pyodide/triordinal/dlist");     // namespace package triordinal: no __init__.py
+    py.FS.mkdirTree("/home/pyodide/triordinal/dtree");
+    py.FS.writeFile("/home/pyodide/triordinal/dlist/__init__.py", $("#src-dlist").textContent);
+    py.FS.writeFile("/home/pyodide/triordinal/dtree/__init__.py", $("#src-init").textContent);
+    py.FS.writeFile("/home/pyodide/triordinal/dtree/core.py", $("#src-dtree").textContent);
+    py.FS.writeFile("/home/pyodide/triordinal/dtree/euler.py", $("#src-euler").textContent);
+    py.FS.writeFile("/home/pyodide/triordinal/dtree/two_lists.py", $("#src-two-lists").textContent);
+  }
+  py.FS.writeFile("/home/pyodide/explorer_bridge.py", $("#src-bridge").textContent);
+  py.runPython('import sys\nif "/home/pyodide" not in sys.path: sys.path.insert(0, "/home/pyodide")');
+  const encode = py.runPython("import explorer_bridge\nexplorer_bridge.encode");
+  const version = py.runPython("import triordinal.dtree\ntriordinal.dtree.__version__");
+  return {
+    label: `triordinal-dtree ${version} (${source}) on Pyodide ${py.version}`,
+    encode: async (text, opts) => JSON.parse(encode(text, 300, opts.kind, opts.positions)),
+  };
+}
+
+async function boot() {
+  wire();
+  $("#text").value = EXAMPLES[DEFAULT.example];
+  state.example = DEFAULT.example;
+  setData(precomputed() || DEFAULT.data["dtree rational"]);
+  try {
+    backend = window.EXPLORER_BACKEND || await startLocal() || await startPyodide();
+    $("#encode").disabled = false;
+    setStatus("ready", "Ready: " + esc(backend.label) + ". Every tree on this page is now computed by the library" + (backend.local ? " on your machine." : " in your browser."));
+    await runEncode();
+  } catch (e) {
+    setStatus("error", "The Python runtime could not be loaded (" + esc(e.message || e) + "). The precomputed example stays visible; check the network connection and reload.");
+  }
+}
+
+// ---- visit counting (online copy only): GoatCounter, no cookies, no personal data --------
+function track(name, params) {
+  if (!window.goatcounter || typeof window.goatcounter.count !== "function") return;
+  const extra = params ? " " + Object.values(params).join(" ") : "";
+  window.goatcounter.count({ path: name + extra, title: name, event: true });
+}
+function startCounter() {
+  if (!CONFIG.counter || location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(location.hostname)) return;
+  const s = document.createElement("script");
+  s.async = true;
+  s.dataset.goatcounter = CONFIG.counter;
+  s.src = "https://gc.zgo.at/count.js";
+  document.head.appendChild(s);
+}
+function privacyLink() {
+  if (!CONFIG.privacyURL) return;                 // the imprint lies next to the privacy notice
+  $("#privacy-link").href = CONFIG.privacyURL;
+  $("#legal").hidden = false;
+}
+
+startCounter();
+privacyLink();
+boot();
+</script>
+</body>
+</html>
